@@ -1,0 +1,2 @@
+dataset,method,n,mean_auc_combo,std_auc_combo,ci95_low,ci95_high,params_mean,forward_flops_mean,infer_flops_mean,wall_seconds_mean
+cifar10,s4_recon_only,50,0.5735264266666666,0.11797129517190544,0.5414720266666666,0.6049558044444444,3670.0,768053.0,770411.0,32.885247074179354

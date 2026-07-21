@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the associated paper."
+title: "PILAR: Pyramidal Inhibitory Lightweight Autoassociative Reconstruction"
+type: software
+version: 0.1.0
+authors:
+  - family-names: Fernandes
+    given-names: "Bruno J. T."
+preferred-citation:
+  type: article
+  title: "Pyramidal Inhibitory Lightweight Autoassociative Reconstruction for Cost-Constrained Visual Anomaly Detection"
+  authors:
+    - family-names: Fernandes
+      given-names: "Bruno J. T."
+  year: 2026

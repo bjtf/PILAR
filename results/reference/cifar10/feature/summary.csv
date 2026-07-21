@@ -1,0 +1,4 @@
+feature_layers,hard_loss,score_norm,metric,mean,std,n,n_inverted
+"layer2,layer3",0.1:1,zscore,auc,0.8124055355555556,0.07771080341575515,50,0
+"layer2,layer3",0.1:1,zscore,ap,0.9696587985830435,0.015077618204996476,50,0
+"layer2,layer3",0.1:1,zscore,oracle_auc,0.8124055355555556,0.07771080341575515,50,0

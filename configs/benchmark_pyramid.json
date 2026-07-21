@@ -1,0 +1,120 @@
+{
+  "seed": 42,
+  "device": "cuda_if_available",
+  "dataset": {
+    "name": "mnist",
+    "data_dir": "./data",
+    "batch_size": 128,
+    "grayscale": true,
+    "normalize": {
+      "mean": [
+        0.1307
+      ],
+      "std": [
+        0.3081
+      ]
+    }
+  },
+  "training": {
+    "epochs": 20,
+    "lr": 0.001
+  },
+  "pair_mode": "same",
+  "contrastive": {
+    "margin": 0.5,
+    "lambda": 1.0,
+    "neg_ratio": 0.1
+  },
+  "decoder": {
+    "type": "pyramid",
+    "start_size": 7,
+    "start_channels": 32,
+    "channels": [
+      32,
+      16
+    ],
+    "activation": "relu"
+  },
+  "selected_trial": {
+    "layers_2d": [
+      {
+        "rf": 3,
+        "overlap": 1,
+        "activation": "leaky_relu",
+        "inhibition": {"enabled": true, "mode": "fixed", "delta": 1.0, "h": 1},
+        "channels": 1
+      },
+      {
+        "rf": 3,
+        "overlap": 2,
+        "activation": "relu",
+        "inhibition": {"enabled": true, "mode": "radial", "h": 1, "radial_init_mu": 1.5, "radial_init_sigma": 1.0},
+        "channels": 3
+      },
+      {
+        "rf": 3,
+        "overlap": 2,
+        "activation": "leaky_relu",
+        "inhibition": {"enabled": true, "mode": "radial", "h": 1, "radial_init_mu": 1.0, "radial_init_sigma": 0.8},
+        "channels": 3
+      }
+    ],
+    "decoder_hidden": [64],
+    "decoder": {"type": "pyramid", "start_size": 7, "start_channels": 32, "channels": [32, 16], "activation": "relu"}
+  },
+  "model": {
+    "input_size": 28,
+    "layers_2d": [
+      {
+        "rf": 3,
+        "overlap": 2,
+        "activation": "relu",
+        "inhibition": {
+          "enabled": true,
+          "mode": "fixed",
+          "delta": 1.0,
+          "h": 1
+        },
+        "channels": 3
+      },
+      {
+        "rf": 3,
+        "overlap": 1,
+        "activation": "relu",
+        "inhibition": {
+          "enabled": true,
+          "mode": "radial",
+          "h": 1,
+          "radial_init_mu": 1.5,
+          "radial_init_sigma": 1.0
+        },
+        "channels": 1
+      },
+      {
+        "rf": 3,
+        "overlap": 1,
+        "activation": "relu",
+        "inhibition": {
+          "enabled": true,
+          "mode": "radial",
+          "h": 1,
+          "radial_init_mu": 1.0,
+          "radial_init_sigma": 0.8
+        }
+      }
+    ],
+    "decoder_hidden": [
+      128
+    ],
+    "decoder": {
+      "type": "pyramid",
+      "start_size": 7,
+      "start_channels": 32,
+      "channels": [
+        32,
+        16
+      ],
+      "activation": "relu"
+    }
+  }
+}
