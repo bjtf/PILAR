@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Pyramidal inhibitory reconstruction for visual anomaly detection"
 readme = "README.md"
 requires-python = ">=3.9"
+license = {file = "LICENSE"}
 authors = [{name = "Bruno J. T. Fernandes"}]
 dependencies = [
   "torch==2.8.0",

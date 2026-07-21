@@ -33,8 +33,8 @@ planned federated extension.
 ## Before making the repository public
 
 1. Confirm the venue's code and anonymity policy.
-2. Choose an explicit license (MIT or Apache-2.0 are common options; this
-   artifact intentionally does not choose for the author).
+2. Confirm that the MIT license and copyright holder remain appropriate for
+   the final release.
 3. Create an immutable release tag and archive it with a DOI.
 4. Add the accepted paper DOI and final bibliographic metadata to
    `CITATION.cff`.

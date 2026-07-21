@@ -172,6 +172,5 @@ Exact commands, expected outputs, hardware caveats, and the claim-to-artifact
 map are documented in [REPRODUCIBILITY.md](REPRODUCIBILITY.md) and
 [RESULTS.md](RESULTS.md).
 
-No open-source license has been selected yet. Until a license is added, all
-rights are reserved; collaborators may inspect the private artifact, but a
-license must be chosen before public release.
+PILAR is distributed under the [MIT License](LICENSE). The GitHub repository
+should remain private while the paper is under review.
