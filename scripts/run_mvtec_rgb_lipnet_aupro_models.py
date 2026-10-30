@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -58,12 +59,15 @@ def _parse_candidates(value: str) -> list[str]:
     unknown = [x for x in out if x not in CONFIGS]
     if unknown:
         raise ValueError(f"Unknown candidates: {unknown}. Available: {sorted(CONFIGS)}")
+    if not out or len(set(out)) != len(out):
+        raise ValueError("Candidates must be nonempty and unique")
     return out
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run MVTec RGB PILAR AUPRO@30 validation for the two RGB-only models.")
     parser.add_argument("--data_root", required=True)
+    parser.add_argument("--output_dir", default="runs/mvtec_rgb_controls")
     parser.add_argument("--device", default="mps_if_available")
     parser.add_argument("--categories", default="all")
     parser.add_argument("--seed", type=int, default=42)
@@ -84,7 +88,7 @@ def main() -> None:
     script = Path(__file__).with_name("run_mvtec_patch_lipnet.py")
     for candidate in candidates:
         cfg = CONFIGS[candidate]
-        output_dir = str(cfg["output_dir"])
+        output_dir = str(Path(args.output_dir) / candidate)
         batch_size = int(args.whole_batch_size) if candidate == "whole_rgb" else int(args.patch_batch_size)
         cfg_args = list(cfg["args"])
         batch_idx = cfg_args.index("--batch_size") + 1
@@ -118,7 +122,7 @@ def main() -> None:
             str(args.progress_every),
             *cfg_args,
         ]
-        print(f"\n[{candidate}] {' '.join(cmd)}", flush=True)
+        print(f"\n[{candidate}] {shlex.join(cmd)}", flush=True)
         if not args.dry_run:
             subprocess.run(cmd, check=True)
             print(f"[{candidate}] saved {output_dir}/summary_aupro.csv", flush=True)

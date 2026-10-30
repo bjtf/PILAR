@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
+import csv
+import hashlib
+import json
+import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
+from typing import Iterable, List
 
 import numpy as np
 import torch
@@ -18,8 +21,8 @@ from torch.utils.data import DataLoader
 
 from lipnet.efficiency import estimate_forward_flops_per_sample, model_size_metrics
 from lipnet.utils import resolve_device, set_seed
-from run_mvtec_feature_lipnet_fcn_aupro import _count_params, _evaluate_norm, _finite_mean
-from run_mvtec_feature_lipnet_fcn_sweep import (
+from scripts.run_mvtec_feature_lipnet_fcn_aupro import _count_params, _evaluate_norm, _finite_mean
+from scripts.run_mvtec_feature_lipnet_fcn_sweep import (
     MVTecImageDataset,
     ResNetMultiFeatureExtractor,
     _build_models,
@@ -29,7 +32,7 @@ from run_mvtec_feature_lipnet_fcn_sweep import (
     _safe_label,
     _train_models,
 )
-from run_mvtec_patch_lipnet import _category_names, _find_mvtec_root, _list_images, _test_images, _write_csv
+from scripts.run_mvtec_patch_lipnet import _category_names, _find_mvtec_root, _list_images, _test_images, _write_csv
 
 
 @dataclass(frozen=True)
@@ -71,24 +74,7 @@ def _parse_architecture(value: str) -> ArchitectureSpec:
 def _preset_architectures(preset: str) -> list[ArchitectureSpec]:
     if preset == "none":
         return []
-    quick = [
-        ArchitectureSpec("base32", "32,32", "3,3", "2,2", "64,32", True),
-        ArchitectureSpec("wide48", "48,48", "3,3", "2,2", "96,48", True),
-        ArchitectureSpec("wide64", "64,64", "3,3", "2,2", "128,64", True),
-        ArchitectureSpec("taper64_32", "64,32", "3,3", "2,2", "128,64", True),
-        ArchitectureSpec("deep32x3", "32,32,32", "3,3,3", "2,2,2", "64,32", True),
-    ]
-    if preset == "quick":
-        return quick
-    if preset == "full":
-        return quick + [
-            ArchitectureSpec("small24", "24,24", "3,3", "2,2", "48,24", True),
-            ArchitectureSpec("base32_dec128", "32,32", "3,3", "2,2", "128,64", True),
-            ArchitectureSpec("base32_dec128x3", "32,32", "3,3", "2,2", "128,64,32", True),
-            ArchitectureSpec("rf5_32", "32,32", "5,3", "4,2", "64,32", True),
-            ArchitectureSpec("no_refine32", "32,32", "3,3", "2,2", "64,32", False),
-        ]
-    raise ValueError("--architecture_preset must be none, quick, or full")
+    raise ValueError("Use the fixed wide64 paper architecture")
 
 
 def _clone_args(args: argparse.Namespace, **updates: object) -> argparse.Namespace:
@@ -105,16 +91,31 @@ def _architecture_label(arch: ArchitectureSpec) -> str:
     return _safe_label(arch.name)
 
 
-def _completed_marker(path: Path) -> bool:
-    return path.exists() and path.stat().st_size > 0
+def _rng_state(device: torch.device) -> dict:
+    state = np.random.get_state()
+    return {
+        "python": random.getstate(),
+        "numpy": [state[0], state[1].tolist(), *state[2:]],
+        "torch": torch.get_rng_state().tolist(),
+        "accelerator": (torch.mps.get_rng_state().tolist() if device.type == "mps"
+                        else [s.tolist() for s in torch.cuda.get_rng_state_all()] if device.type == "cuda" else None),
+    }
 
 
-def _read_single_row(path: Path) -> dict | None:
-    if not path.exists():
-        return None
-    with path.open("r", encoding="utf-8", newline="") as f:
-        rows = list(csv.DictReader(f))
-    return rows[0] if rows else None
+def _restore_rng(state: dict, device: torch.device) -> None:
+    py = state["python"]
+    random.setstate((py[0], tuple(py[1]), py[2]))
+    ns = state["numpy"]
+    np.random.set_state((ns[0], np.asarray(ns[1], dtype=np.uint32), *ns[2:]))
+    torch.set_rng_state(torch.tensor(state["torch"], dtype=torch.uint8))
+    if device.type == "mps":
+        torch.mps.set_rng_state(torch.tensor(state["accelerator"], dtype=torch.uint8))
+    elif device.type == "cuda":
+        torch.cuda.set_rng_state_all([torch.tensor(s, dtype=torch.uint8) for s in state["accelerator"]])
+
+
+def _digest(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def _is_architecture_size_error(exc: RuntimeError) -> bool:
@@ -132,7 +133,11 @@ def _run_category_architecture(
 ) -> list[dict]:
     category_root = mvtec_root / category
     train_paths = _list_images(category_root / "train" / "good")
-    test_rows = _test_images(category_root)
+    test_rows = _test_images(category_root) if getattr(args, "dataset", "mvtec") == "mvtec" else []
+    if getattr(args, "dataset", "mvtec") == "visa":
+        from lipnet.data import visa_split
+        data = visa_split(mvtec_root)[category]
+        train_paths, test_rows = data["train"], data["test"]
     if int(args.max_train_images) > 0:
         train_paths = train_paths[: int(args.max_train_images)]
     if int(args.max_test_images) > 0:
@@ -157,6 +162,38 @@ def _run_category_architecture(
         refine_decoder=arch.refine_decoder,
     )
 
+    # A complete category cache includes the post-category RNG state. Restoring it
+    # preserves the original sequential seed policy when earlier jobs are skipped.
+    cache_path = Path(args.output_dir) / "resume_state" / f"{arch_label}_{hard_dir}_{category}.json"
+    protocol = {k: v for k, v in vars(args).items() if k not in {"output_dir", "resume", "progress_every", "diagnostic_stop_after_epoch"}}
+    source_root = REPOSITORY_ROOT
+    sources = sorted((source_root / "lipnet").glob("*.py")) + sorted((source_root / "scripts").glob("*.py"))
+    protocol["sources"] = {str(p.relative_to(source_root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
+    from lipnet.runtime import environment_identity
+    protocol["versions"] = environment_identity(device)
+    protocol["train_files"] = [(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in train_paths]
+    if getattr(args, "save_artifacts", False):
+        from lipnet.checkpoint import sha256
+        protocol["dataset_content"] = [(str(p.relative_to(mvtec_root)), sha256(p)) for p in
+            train_paths + [x.path for x in test_rows] + [x.mask_path for x in test_rows if x.mask_path]]
+    fingerprint = _digest(protocol)
+    before_rng = _digest(_rng_state(device))
+    if bool(args.resume) and cache_path.exists():
+        cached = json.loads(cache_path.read_text())
+        if cached["fingerprint"] != fingerprint or cached["before_rng"] != before_rng:
+            raise RuntimeError(f"{category}: resume provenance/RNG mismatch; use a new output directory")
+        valid = all(Path(p).is_file() and hashlib.sha256(Path(p).read_bytes()).hexdigest() == digest
+                    for p, digest in cached["artifacts"].items())
+        if valid and cached["rows"]:
+            _restore_rng(cached["after_rng"], device)
+            print(f"{category}: restored complete category and RNG; no retraining", flush=True)
+            return cached["rows"]
+        print(f"{category}: incomplete/modified artifacts; retraining category from its start", flush=True)
+
+    if getattr(args, "save_artifacts", False):
+        arch_args.epoch_checkpoint = Path(args.output_dir) / "checkpoints" / f"{arch_label}_{hard_dir}_{category}" / "checkpoint_epoch.pt"
+        arch_args.checkpoint_fingerprint = fingerprint
+        arch_args.dataset_manifest = protocol["dataset_content"]
     train_loader = DataLoader(
         MVTecImageDataset(train_paths, image_resize=int(args.image_resize)),
         batch_size=int(args.batch_size),
@@ -196,13 +233,6 @@ def _run_category_architecture(
         for score_norm in args.score_norms:
             eval_dir = Path(args.output_dir) / "details" / arch_label / hard_dir / topk_dir
             row_path = eval_dir / f"summary_row_{category}_{score_norm}.csv"
-            if bool(args.resume) and _completed_marker(row_path):
-                cached = _read_single_row(row_path)
-                if cached is not None:
-                    rows.append(cached)
-                print(f" {category}/{arch.name}/{hard_label}/{score_norm}/topk={topk_frac:g}: loaded existing result")
-                continue
-
             eval_args = _clone_args(
                 arch_args,
                 image_topk_frac=topk_frac,
@@ -229,6 +259,7 @@ def _run_category_architecture(
                     "feature_overlap_schedule": arch.overlap_schedule,
                     "feature_decoder_channels": arch.decoder_channels,
                     "refine_decoder": int(arch.refine_decoder),
+                    "feature_inhibition": int(bool(args.feature_inhibition)),
                     "image_topk_frac": float(topk_frac),
                     "n_train_images": int(len(train_paths)),
                     "image_resize": int(args.image_resize),
@@ -248,6 +279,23 @@ def _run_category_architecture(
             )
             _write_csv(row_path, [row], _fieldnames())
             rows.append(row)
+    artifacts = {}
+    for topk_frac in args.image_topk_fracs:
+        directory = Path(args.output_dir) / "details" / arch_label / hard_dir / f"topk_{_label_float(topk_frac)}"
+        for path in directory.glob(f"*_{category}_*.csv"):
+            artifacts[str(path.resolve())] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if getattr(args, "save_artifacts", False):
+        from lipnet.checkpoint import sha256
+        for path in Path(args.output_dir).glob(f"details/{arch_label}/{hard_dir}/topk_*/*_{category}_*.*"):
+            if path.suffix in {".pt", ".npz"}:
+                artifacts[str(path.resolve())] = sha256(path)
+        artifacts[str(arch_args.epoch_checkpoint.resolve())] = sha256(arch_args.epoch_checkpoint)
+    payload = {"fingerprint": fingerprint, "before_rng": before_rng,
+               "after_rng": _rng_state(device), "rows": rows, "artifacts": artifacts}
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = cache_path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2))
+    temporary.replace(cache_path)
     return rows
 
 
@@ -287,6 +335,7 @@ def _fieldnames() -> list[str]:
         "feature_overlap_schedule",
         "feature_decoder_channels",
         "refine_decoder",
+        "feature_inhibition",
         "train_topk_feature_frac",
         "train_topk_feature_weight",
         "quantile_low",
@@ -301,6 +350,7 @@ def _group_key(row: dict) -> tuple:
         row["hard_loss"],
         row["score_norm"],
         float(row["image_topk_frac"]),
+        row.get("feature_inhibition", "1"),
     )
 
 
@@ -337,14 +387,17 @@ def _sort_ranking(rows: list[dict], target_metric: str) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture sweep for MVTec Feature-PILAR-FCN.")
     parser.add_argument("--data_root", default="data/mvtec_ad")
-    parser.add_argument("--categories", default="screw,carpet")
+    parser.add_argument("--dataset", choices=["mvtec", "visa"], default="mvtec")
+    parser.add_argument("--categories", default="all")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="mps_if_available")
     parser.add_argument("--output_dir", default="runs/benchmark/mvtec_feature_lipnet_fcn_arch_sweep_v1")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--save_artifacts", action="store_true")
+    parser.add_argument("--diagnostic_stop_after_epoch", type=int, default=-1)
     parser.add_argument("--target_metric", default="image_auc", choices=["image_auc", "image_ap", "pixel_auc", "aupro_30"])
-    parser.add_argument("--architecture_preset", default="quick", choices=["none", "quick", "full"])
-    parser.add_argument("--architectures", nargs="*", default=[])
+    parser.add_argument("--architecture_preset", default="none", choices=["none"])
+    parser.add_argument("--architectures", nargs="*", default=["wide64:64,64:3,3:2,2:128,64:true"])
     parser.add_argument("--image_resize", type=int, default=512)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=10)
@@ -356,12 +409,13 @@ def main() -> None:
     parser.add_argument("--feature_layers", default="layer2,layer3")
     parser.add_argument("--score_norms", nargs="+", default=["zscore"], choices=["none", "zscore", "quantile"])
     parser.add_argument("--hard_loss_settings", nargs="+", default=["0.10:1.0"])
-    parser.add_argument("--image_topk_fracs", nargs="+", type=float, default=[0.005, 0.01, 0.02])
+    parser.add_argument("--image_topk_fracs", nargs="+", type=float, default=[0.01])
     parser.add_argument("--feature_normalize", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--feature_encoder_channels", default="32,32")
     parser.add_argument("--feature_rf_schedule", default="3,3")
     parser.add_argument("--feature_overlap_schedule", default="2,2")
     parser.add_argument("--feature_decoder_channels", default="64,32")
+    parser.add_argument("--feature_inhibition", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--inhibition_h", type=int, default=1)
     parser.add_argument("--refine_decoder", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--l1_weight", type=float, default=0.0)
@@ -379,13 +433,23 @@ def main() -> None:
 
     set_seed(int(args.seed))
     device = resolve_device(args.device)
-    mvtec_root = _find_mvtec_root(Path(args.data_root))
-    categories = _category_names(mvtec_root, args.categories)
+    if args.dataset == "visa":
+        from lipnet.data import visa_split
+        mvtec_root = Path(args.data_root).resolve()
+        available = visa_split(mvtec_root)
+        categories = sorted(available) if args.categories == "all" else args.categories.split(",")
+        if not set(categories).issubset(available):
+            raise ValueError("Unknown VisA categories")
+    else:
+        mvtec_root = _find_mvtec_root(Path(args.data_root))
+        categories = _category_names(mvtec_root, args.categories)
     hard_settings = [_parse_hard_setting(x) for x in args.hard_loss_settings]
     architectures = _preset_architectures(args.architecture_preset)
     architectures.extend(_parse_architecture(x) for x in args.architectures)
 
     out_dir = Path(args.output_dir)
+    if out_dir.exists() and any(out_dir.iterdir()) and not args.resume:
+        raise FileExistsError("Output is not empty; use --resume or a new directory")
     out_dir.mkdir(parents=True, exist_ok=True)
     print(
         f"MVTec Feature-PILAR-FCN architecture sweep root={mvtec_root} categories={categories} "
@@ -400,6 +464,12 @@ def main() -> None:
             for category in categories:
                 rows.extend(_run_category_architecture(category, mvtec_root, arch, hard_setting, args, device))
 
+    expected = len(categories) * len(architectures) * len(hard_settings) * len(args.score_norms) * len(args.image_topk_fracs)
+    if len(rows) != expected:
+        raise RuntimeError(f"Incomplete result matrix: {len(rows)} of {expected}; no final macro written")
+    if args.max_train_images == 0 and args.max_test_images == 0:
+        if any(not np.isfinite(float(row[k])) for row in rows for k in ("image_auc", "image_ap", "pixel_auc", "aupro_30")):
+            raise RuntimeError("Non-finite final metrics; no final macro written")
     macro = _macro_rows(rows)
     ranking = _sort_ranking(macro, str(args.target_metric))
     _write_csv(out_dir / "summary_arch_sweep.csv", rows + macro, _fieldnames())

@@ -1,3 +1,5 @@
+# Compatibility environment tested with Python 3.12; Python 3.10 is checked in CI.
+# For the original industrial training versions, use requirements-paper.txt.
 torch==2.8.0
 torchvision==0.23.0
 numpy==2.0.2

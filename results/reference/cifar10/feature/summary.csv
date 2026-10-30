@@ -1,4 +1,4 @@
-feature_layers,hard_loss,score_norm,metric,mean,std,n,n_inverted
-"layer2,layer3",0.1:1,zscore,auc,0.8124055355555556,0.07771080341575515,50,0
-"layer2,layer3",0.1:1,zscore,ap,0.9696587985830435,0.015077618204996476,50,0
-"layer2,layer3",0.1:1,zscore,oracle_auc,0.8124055355555556,0.07771080341575515,50,0
+feature_layers,hard_loss,score_norm,metric,mean,sample_sd,n_seeds,n_categories
+"layer2,layer3",0.1:1,zscore,auc,0.8124055344444444,0.0006822884993638937,5,10
+"layer2,layer3",0.1:1,zscore,ap,0.9696587890839805,0.00022896290267280083,5,10
+"layer2,layer3",0.1:1,zscore,oracle_auc,0.8124055344444444,0.0006822884993638937,5,10

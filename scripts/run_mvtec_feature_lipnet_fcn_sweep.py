@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import csv
 import math
-import sys
+import time
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
+from typing import Iterable, List
 
 import numpy as np
 import torch
@@ -25,7 +27,7 @@ from lipnet.efficiency import estimate_forward_flops_per_sample, model_size_metr
 from lipnet.metrics import pr_auc, roc_auc
 from lipnet.one_class import LIPNetAutoencoder
 from lipnet.utils import resolve_device, set_seed
-from run_mvtec_patch_lipnet import (
+from scripts.run_mvtec_patch_lipnet import (
     _category_names,
     _find_mvtec_root,
     _list_images,
@@ -35,8 +37,8 @@ from run_mvtec_patch_lipnet import (
     _test_images,
     _write_csv,
 )
-from run_mvtec_patch_lipnet import _image_to_tensor as _rgb_to_tensor
-from run_mvtec_feature_lipnet import _make_feature_model
+from scripts.run_mvtec_patch_lipnet import _image_to_tensor as _rgb_to_tensor
+from scripts.run_mvtec_feature_lipnet import _make_feature_model
 
 
 @dataclass(frozen=True)
@@ -73,7 +75,7 @@ class ResNetMultiFeatureExtractor(nn.Module):
         backbone = str(backbone).lower()
         weights = str(weights).lower()
         if backbone == "resnet18":
-            w = ResNet18_Weights.DEFAULT if weights == "default" else None
+            w = ResNet18_Weights.IMAGENET1K_V1 if weights == "default" else None
             model = resnet18(weights=w)
         elif backbone == "resnet50":
             w = ResNet50_Weights.DEFAULT if weights == "default" else None
@@ -193,7 +195,20 @@ def _train_models(
         weight_decay=float(args.weight_decay),
     )
 
-    for epoch in range(1, int(args.epochs) + 1):
+    checkpoint_path = getattr(args, "epoch_checkpoint", None)
+    first_epoch = 0
+    if checkpoint_path:
+        from lipnet.checkpoint import resume_epoch, save_epoch
+        if getattr(args, "resume", False):
+            first_epoch = resume_epoch(models, opt, device, checkpoint_path, args.checkpoint_fingerprint, backbone=backbone)
+    def synchronize():
+        if device.type == "mps":
+            torch.mps.synchronize()
+        elif device.type == "cuda":
+            torch.cuda.synchronize(device)
+    for epoch in range(first_epoch + 1, int(args.epochs) + 1):
+        synchronize()
+        started = time.perf_counter()
         total = 0.0
         n = 0
         for x in loader:
@@ -216,7 +231,23 @@ def _train_models(
             opt.step()
             total += float(loss.item()) * int(x.shape[0])
             n += int(x.shape[0])
-        print(f" epoch={epoch}/{args.epochs} loss={total / max(1, n):.6f}", flush=True)
+        synchronize()
+        elapsed = time.perf_counter() - started
+        print(f" epoch={epoch}/{args.epochs} loss={total / max(1, n):.6f} seconds={elapsed:.3f}", flush=True)
+        if checkpoint_path:
+            epoch_log = Path(checkpoint_path).with_name("training.json")
+            history = json.loads(epoch_log.read_text()) if epoch_log.exists() else []
+            history = [row for row in history if row["epoch"] < epoch]
+            history.append({"epoch": epoch, "loss": total / max(1, n), "seconds": elapsed, "images": n})
+            epoch_log.parent.mkdir(parents=True, exist_ok=True)
+            temporary = epoch_log.with_suffix(".tmp")
+            temporary.write_text(json.dumps(history, indent=2))
+            temporary.replace(epoch_log)
+        if checkpoint_path:
+            save_epoch(models, opt, backbone, device, epoch, checkpoint_path, args.checkpoint_fingerprint)
+            # Test-only fault injection after a durable epoch, never used in final runs.
+            if epoch == getattr(args, "diagnostic_stop_after_epoch", -1):
+                raise RuntimeError("Diagnostic interruption after durable epoch")
 
 
 def _collect_train_maps(

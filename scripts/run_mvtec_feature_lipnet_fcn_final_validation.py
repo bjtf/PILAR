@@ -11,12 +11,7 @@ from pathlib import Path
 import torch
 
 
-ARCHITECTURES = {
-    "base32": "base32:32,32:3,3:2,2:64,32:true",
-    "taper64_32": "taper64_32:64,32:3,3:2,2:128,64:true",
-    "wide48": "wide48:48,48:3,3:2,2:96,48:true",
-    "wide64": "wide64:64,64:3,3:2,2:128,64:true",
-}
+ARCHITECTURES = {"wide64": "wide64:64,64:3,3:2,2:128,64:true"}
 
 
 def _print_command(command: list[str]) -> None:
@@ -57,14 +52,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Run the final all-class MVTec Feature-PILAR-FCN architecture validation "
-            "using the selected candidates from the quick sweep."
+            "with the paper configuration."
         )
     )
     parser.add_argument("--data_root", default="data/mvtec_ad")
     parser.add_argument("--categories", default="all")
     parser.add_argument("--device", default="mps_if_available")
     parser.add_argument("--output_dir", default="runs/benchmark/mvtec_feature_lipnet_fcn_final_validation_v1")
-    parser.add_argument("--candidates", nargs="+", default=["taper64_32", "wide64"], choices=sorted(ARCHITECTURES))
+    parser.add_argument("--candidates", nargs="+", default=["wide64"], choices=sorted(ARCHITECTURES))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=8)
@@ -110,6 +105,7 @@ def main() -> None:
         "0.10:1.0",
         "--image_topk_fracs",
         "0.01",
+        "--save_artifacts",
         "--target_metric",
         "image_auc",
         "--image_resize",

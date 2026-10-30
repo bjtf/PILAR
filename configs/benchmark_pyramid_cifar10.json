@@ -24,221 +24,61 @@
     "epochs": 20,
     "lr": 0.001
   },
-  "pair_mode": "same",
-  "contrastive": {
-    "margin": 0.5,
-    "lambda": 1.0,
-    "neg_ratio": 0.1
-  },
-  "decoder": {
-    "type": "pyramid",
-    "start_size": 8,
-    "start_channels": 32,
-    "channels": [
-      32,
-      16
-    ],
-    "activation": "relu",
-    "use_upsample": false
-  },
   "selected_trial": {
     "layers_2d": [
       {
         "rf": 3,
         "overlap": 2,
         "activation": "relu",
-        "inhibition": {"enabled": true, "mode": "fixed", "delta": 1.0, "h": 1}
+        "inhibition": {
+          "enabled": true,
+          "mode": "fixed",
+          "delta": 1.0,
+          "h": 1
+        }
       },
       {
         "rf": 3,
         "overlap": 1,
         "activation": "relu",
-        "inhibition": {"enabled": true, "mode": "radial", "h": 1, "radial_init_mu": 1.5, "radial_init_sigma": 1.0},
+        "inhibition": {
+          "enabled": true,
+          "mode": "radial",
+          "h": 1,
+          "radial_init_mu": 1.5,
+          "radial_init_sigma": 1.0
+        },
         "channels": 3
       },
       {
         "rf": 3,
         "overlap": 1,
         "activation": "relu",
-        "inhibition": {"enabled": true, "mode": "radial", "h": 1, "radial_init_mu": 1.0, "radial_init_sigma": 0.8}
+        "inhibition": {
+          "enabled": true,
+          "mode": "radial",
+          "h": 1,
+          "radial_init_mu": 1.0,
+          "radial_init_sigma": 0.8
+        }
       }
     ],
-    "decoder_hidden": [128],
-    "decoder": {"type": "pyramid", "start_size": 8, "start_channels": 32, "channels": [32, 16], "activation": "relu"}
+    "decoder_hidden": [
+      128
+    ],
+    "decoder": {
+      "type": "pyramid",
+      "start_size": 8,
+      "start_channels": 32,
+      "channels": [
+        32,
+        16
+      ],
+      "activation": "relu"
+    }
   },
   "model": {
     "input_size": 32,
-    "input_channels": 3,
-    "layers_2d": [
-      {
-        "rf": 3,
-        "overlap": 2,
-        "activation": "relu",
-        "inhibition": {
-          "enabled": true,
-          "mode": "fixed",
-          "delta": 1.0,
-          "h": 1
-        },
-        "channels": 3
-      },
-      {
-        "rf": 3,
-        "overlap": 1,
-        "activation": "relu",
-        "inhibition": {
-          "enabled": true,
-          "mode": "radial",
-          "h": 1,
-          "radial_init_mu": 1.5,
-          "radial_init_sigma": 1.0
-        },
-        "channels": 1
-      },
-      {
-        "rf": 3,
-        "overlap": 1,
-        "activation": "relu",
-        "inhibition": {
-          "enabled": true,
-          "mode": "radial",
-          "h": 1,
-          "radial_init_mu": 1.0,
-          "radial_init_sigma": 0.8
-        }
-      }
-    ],
-    "decoder_hidden": [
-      128
-    ],
-    "decoder": {
-      "type": "pyramid",
-      "start_size": 8,
-      "start_channels": 32,
-      "channels": [
-        32,
-        16
-      ],
-      "activation": "relu",
-      "use_upsample": false
-    }
-  },
-  "local_only": true,
-  "baseline_trial": {
-    "layers_2d": [
-      {
-        "rf": 3,
-        "overlap": 2,
-        "activation": "relu",
-        "inhibition": {
-          "enabled": true,
-          "mode": "fixed",
-          "delta": 1.0,
-          "h": 1
-        },
-        "channels": 3
-      },
-      {
-        "rf": 3,
-        "overlap": 1,
-        "activation": "relu",
-        "inhibition": {
-          "enabled": true,
-          "mode": "radial",
-          "h": 1,
-          "radial_init_mu": 1.5,
-          "radial_init_sigma": 1.0
-        },
-        "channels": 1
-      },
-      {
-        "rf": 3,
-        "overlap": 1,
-        "activation": "relu",
-        "inhibition": {
-          "enabled": true,
-          "mode": "radial",
-          "h": 1,
-          "radial_init_mu": 1.0,
-          "radial_init_sigma": 0.8
-        }
-      }
-    ],
-    "decoder_hidden": [
-      128
-    ],
-    "pair_mode": "same",
-    "contrastive": {
-      "margin": 0.5,
-      "lambda": 1.0,
-      "neg_ratio": 0.1
-    },
-    "decoder": {
-      "type": "pyramid",
-      "start_size": 8,
-      "start_channels": 32,
-      "channels": [
-        32,
-        16
-      ],
-      "activation": "relu",
-      "use_upsample": false
-    }
-  },
-  "local_trials": 5,
-  "search_space": {
-    "rf": [
-      3,
-      5
-    ],
-    "overlap": [
-      1,
-      2
-    ],
-    "channels": [
-      1,
-      3
-    ],
-    "activation": [
-      "relu",
-      "leaky_relu"
-    ],
-    "decoder_hidden": [
-      [
-        64
-      ],
-      [
-        128
-      ],
-      [
-        256
-      ]
-    ],
-    "decoder_start_channels": [
-      16,
-      32,
-      64
-    ],
-    "decoder_channels": [
-      [
-        32,
-        16
-      ],
-      [
-        16,
-        8
-      ],
-      [
-        64,
-        32
-      ]
-    ],
-    "decoder_use_upsample": [
-      false,
-      true
-    ]
-  },
-  "pure_pyramid_automl": true,
-  "pure_local_trials": 50,
-  "pure_random_trials": 50
+    "input_channels": 3
+  }
 }

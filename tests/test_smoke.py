@@ -62,7 +62,10 @@ class ModelTests(unittest.TestCase):
 
 class ArtifactTests(unittest.TestCase):
     def test_reference_inventory(self) -> None:
-        self.assertGreaterEqual(len(verify()), 8)
+        checked = verify()
+        self.assertEqual(len(checked), 6)
+        self.assertIn("19,435 image scores", checked[1])
+        self.assertIn("365 subtype results", checked[-1])
 
 
 if __name__ == "__main__":
