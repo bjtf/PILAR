@@ -2,6 +2,8 @@
 import argparse
 import csv
 import json
+import math
+import shutil
 import shlex
 import statistics
 import subprocess
@@ -15,15 +17,12 @@ from typing import Dict, List, Tuple
 DEFAULT_DATASET_SPECS = {
     "fashion_mnist": {
         "config": "configs/benchmark_pyramid_fashion.json",
-        "run_id": "",
     },
     "mnist": {
         "config": "configs/benchmark_pyramid.json",
-        "run_id": "",
     },
     "cifar10": {
         "config": "configs/benchmark_pyramid_cifar10.json",
-        "run_id": "",
     },
 }
 
@@ -41,106 +40,43 @@ BASE_RECON_ONLY = {
 }
 
 
-ABLATIONS = [
-    {
-        "name": "baseline_recon_only",
-        "factor": "baseline",
-        "description": "S4 backbone with reconstruction-only scoring (no prototypes)",
-        "override": {},
-        "remove": [],
-    },
-    {
-        "name": "inhib_none",
-        "factor": "inhibition",
-        "description": "Disable lateral inhibition in all encoder layers",
-        "override": {"inhibition_mode": "none"},
-        "remove": [],
-    },
-    {
-        "name": "inhib_fixed_all",
-        "factor": "inhibition",
-        "description": "Force fixed inhibition in all encoder layers",
-        "override": {"inhibition_mode": "fixed", "inhibition_fixed_delta": 1.0},
-        "remove": [],
-    },
-    {
-        "name": "inhib_radial_all",
-        "factor": "inhibition",
-        "description": "Force radial inhibition in all encoder layers",
-        "override": {"inhibition_mode": "radial", "inhibition_radial_mu": 1.0, "inhibition_radial_sigma": 1.0},
-        "remove": [],
-    },
-    {
-        "name": "enc_channels_1",
-        "factor": "encoder_channels",
-        "description": "Set all encoder layers to 1 channel",
-        "override": {"encoder_channels_override": "1"},
-        "remove": [],
-    },
-    {
-        "name": "enc_channels_2",
-        "factor": "encoder_channels",
-        "description": "Set all encoder layers to 2 channels",
-        "override": {"encoder_channels_override": "2"},
-        "remove": [],
-    },
-    {
-        "name": "enc_channels_4",
-        "factor": "encoder_channels",
-        "description": "Set all encoder layers to 4 channels",
-        "override": {"encoder_channels_override": "4"},
-        "remove": [],
-    },
-    {
-        "name": "enc_layers_1",
-        "factor": "encoder_depth",
-        "description": "Keep only the first encoder layer",
-        "override": {"encoder_layers_keep": 1},
-        "remove": [],
-    },
-    {
-        "name": "enc_layers_2",
-        "factor": "encoder_depth",
-        "description": "Keep only the first two encoder layers",
-        "override": {"encoder_layers_keep": 2},
-        "remove": [],
-    },
-    {
-        "name": "dec_channels_8_4",
-        "factor": "decoder_channels",
-        "description": "Use decoder channels [8,4]",
-        "override": {"channels": "8,4"},
-        "remove": [],
-    },
-    {
-        "name": "dec_channels_4",
-        "factor": "decoder_channels",
-        "description": "Use decoder channels [4]",
-        "override": {"channels": "4"},
-        "remove": [],
-    },
-    {
-        "name": "decoder_pyramid",
-        "factor": "decoder_type",
-        "description": "Switch to pyramid decoder",
-        "override": {"decoder_type": "pyramid"},
-        "remove": ["channels"],
-    },
-    {
-        "name": "latent_transformer",
-        "factor": "latent_transformer",
-        "description": "Add one lightweight Transformer encoder layer in the spatial bottleneck",
-        "override": {
-            "latent_transformer": True,
-            "transformer_d_model": 32,
-            "transformer_heads": 4,
-            "transformer_layers": 1,
-            "transformer_ff_dim": 64,
-        },
-        "remove": [],
-    },
-]
-
+ABLATIONS = [{'name': 'baseline_recon_only',
+  'factor': 'baseline',
+  'description': 'S4 backbone with reconstruction-only scoring (no prototypes)',
+  'override': {},
+  'remove': []},
+ {'name': 'inhib_none',
+  'factor': 'inhibition',
+  'description': 'Disable lateral inhibition in all encoder layers',
+  'override': {'inhibition_mode': 'none'},
+  'remove': []},
+ {'name': 'inhib_radial_all',
+  'factor': 'inhibition',
+  'description': 'Force radial inhibition in all encoder layers',
+  'override': {'inhibition_mode': 'radial',
+               'inhibition_radial_mu': 1.0,
+               'inhibition_radial_sigma': 1.0},
+  'remove': []},
+ {'name': 'enc_channels_1',
+  'factor': 'encoder_channels',
+  'description': 'Set all encoder layers to 1 channel',
+  'override': {'encoder_channels_override': '1'},
+  'remove': []},
+ {'name': 'enc_channels_2',
+  'factor': 'encoder_channels',
+  'description': 'Set all encoder layers to 2 channels',
+  'override': {'encoder_channels_override': '2'},
+  'remove': []},
+ {'name': 'enc_channels_4',
+  'factor': 'encoder_channels',
+  'description': 'Set all encoder layers to 4 channels',
+  'override': {'encoder_channels_override': '4'},
+  'remove': []},
+ {'name': 'dec_channels_4',
+  'factor': 'decoder_channels',
+  'description': 'Use decoder channels [4]',
+  'override': {'channels': '4'},
+  'remove': []}]
 
 def _parse_int_list(value: str, default: List[int]) -> List[int]:
     if not value.strip():
@@ -301,7 +237,7 @@ def _extract_worst_pairs(path: Path, dataset: str, variant: str, seed: int) -> L
     return out
 
 
-def _build_cmd(python_bin: str, config_path: Path, run_id: str, params: Dict, per_csv: Path, pair_csv: Path, tag: str) -> List[str]:
+def _build_cmd(python_bin: str, config_path: Path, params: Dict, per_csv: Path, pair_csv: Path, tag: str) -> List[str]:
     cmd = [
         python_bin,
         str(Path(__file__).resolve().with_name("oneclass_auc_per_class.py")),
@@ -314,8 +250,6 @@ def _build_cmd(python_bin: str, config_path: Path, run_id: str, params: Dict, pe
         "--ablation_tag",
         str(tag),
     ]
-    if str(run_id).strip():
-        cmd.extend(["--run_id", str(run_id).strip()])
     for k, v in params.items():
         flag = f"--{k}"
         if isinstance(v, bool):
@@ -335,41 +269,73 @@ def _dataset_spec(dataset: str, args) -> Dict[str, str]:
     if dataset == "fashion_mnist":
         if args.fashion_config:
             spec["config"] = args.fashion_config
-        if args.fashion_run_id:
-            spec["run_id"] = args.fashion_run_id
     elif dataset == "mnist":
         if args.mnist_config:
             spec["config"] = args.mnist_config
-        if args.mnist_run_id:
-            spec["run_id"] = args.mnist_run_id
     elif dataset == "cifar10":
         if args.cifar10_config:
             spec["config"] = args.cifar10_config
-        if args.cifar10_run_id:
-            spec["run_id"] = args.cifar10_run_id
     return spec
 
 
-def _materialize_config(repo_root: Path, src_rel: str, dst: Path, seed: int, class_ids: List[int], device: str) -> Path:
+def _materialize_config(repo_root: Path, src_rel: str, dst: Path, seed: int, class_ids: List[int], device: str, data_root: str = "data", download: bool = True) -> Path:
     src = (repo_root / src_rel).resolve()
     cfg = json.loads(src.read_text(encoding="utf-8"))
     cfg["seed"] = int(seed)
     cfg["device"] = str(device)
     cfg["class_ids"] = [int(c) for c in class_ids]
+    cfg["dataset"]["data_dir"] = str((repo_root / data_root).resolve())
+    cfg["dataset"]["download"] = bool(download)
+    if dst.exists() and json.loads(dst.read_text()) != cfg:
+        raise FileExistsError(f"Configuration differs from existing run: {dst}")
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     return dst
 
 
-def _aggregate_summary(rows: List[Dict]) -> List[Dict]:
+def _validate_outputs(per_csv: Path, pair_csv: Path, class_ids: List[int], dataset: str, seed: int, variant: str, expected_params=None) -> None:
+    """A file's existence is not proof of a complete seed."""
+    with per_csv.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    ids = [int(r["class_id"]) for r in rows]
+    if sorted(ids) != sorted(class_ids):
+        raise ValueError(f"Incomplete/duplicate classes in {per_csv}: {ids}")
+    for row in rows:
+        if row["dataset"] != dataset or int(row["seed"]) != seed or row["ablation_tag"] != variant:
+            raise ValueError(f"Run identity mismatch in {per_csv}")
+        if not math.isfinite(float(row["auc_test_recon"])):
+            raise ValueError(f"Non-finite AUC in {per_csv}")
+    with pair_csv.open(newline="") as f:
+        pairs = list(csv.DictReader(f))
+    found = [(int(r["pos_class"]), int(r["neg_class"])) for r in pairs]
+    expected = [(c, other) for c in class_ids for other in range(10) if other != c]
+    if sorted(found) != sorted(expected):
+        raise ValueError(f"Incomplete/duplicate class pairs in {pair_csv}")
+    if any(not math.isfinite(float(r["auc_recon"])) for r in pairs):
+        raise ValueError(f"Non-finite pair AUC in {pair_csv}")
+    if expected_params is not None:
+        artifacts = per_csv.parent / (per_csv.stem + "_artifacts")
+        recorded = json.loads((artifacts / "run_config.json").read_text())["arguments"]
+        if any(recorded.get(key) != value for key, value in expected_params.items()):
+            raise ValueError(f"Run arguments differ from existing artifacts in {artifacts}")
+        for cls in class_ids:
+            for name in (f"scores_class{cls}.csv", f"model_class{cls}.pt"):
+                if not (artifacts / name).is_file():
+                    raise ValueError(f"Incomplete inference artifacts in {artifacts}: missing {name}")
+
+
+def _aggregate_summary(rows: List[Dict], expected_seeds=None) -> List[Dict]:
     grouped = defaultdict(list)
     for row in rows:
         if int(row.get("return_code", 1)) != 0:
-            continue
+            raise ValueError("Cannot summarize failed runs")
         grouped[(row["dataset"], row["variant"], row["factor"], row["description"])].append(row)
 
     out = []
     for (dataset, variant, factor, description), vals in sorted(grouped.items()):
+        seeds = [int(v["seed"]) for v in vals]
+        if len(seeds) != len(set(seeds)) or (expected_seeds is not None and set(seeds) != set(expected_seeds)):
+            raise ValueError(f"Incomplete or duplicated seeds for {dataset}/{variant}")
         def _agg_num(key: str) -> Tuple[float, float]:
             xs = [float(v[key]) for v in vals if float(v[key]) == float(v[key])]
             if not xs:
@@ -434,21 +400,20 @@ def main():
     parser = argparse.ArgumentParser(description="Detailed architecture ablation study for S4 reconstruction-only (no prototypes).")
     parser.add_argument("--python_bin", default=sys.executable)
     parser.add_argument("--out_dir", default="runs/benchmark/ablations/s4_noproto")
-    parser.add_argument("--datasets", default="fashion_mnist,mnist,cifar10")
-    parser.add_argument("--seeds", default="42")
+    parser.add_argument("--datasets", default="fashion_mnist,mnist")
+    parser.add_argument("--seeds", default="42,43,44,45,46")
     parser.add_argument("--class_ids", default="0,1,2,3,4,5,6,7,8,9")
     parser.add_argument("--device", default="cuda_if_available")
+    parser.add_argument("--data_root", default="data")
+    parser.add_argument("--download", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--epochs_mult", type=int, default=2)
     parser.add_argument("--only", default="", help="Comma-separated ablation names")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry_run", action="store_true")
 
     parser.add_argument("--fashion_config", default="")
-    parser.add_argument("--fashion_run_id", default="")
     parser.add_argument("--mnist_config", default="")
-    parser.add_argument("--mnist_run_id", default="")
     parser.add_argument("--cifar10_config", default="")
-    parser.add_argument("--cifar10_run_id", default="")
 
     args = parser.parse_args()
 
@@ -458,7 +423,7 @@ def main():
 
     python_bin = args.python_bin
     if not Path(python_bin).is_absolute():
-        python_bin = str((repo_root / python_bin).resolve())
+        python_bin = shutil.which(python_bin) or str((repo_root / python_bin).resolve())
 
     datasets = _parse_str_list(args.datasets, ["fashion_mnist", "mnist", "cifar10"])
     seeds = _parse_int_list(args.seeds, [42])
@@ -467,9 +432,17 @@ def main():
     ablations = list(ABLATIONS)
     if args.only.strip():
         wanted = {x.strip() for x in args.only.split(",") if x.strip()}
+        unknown = wanted - {a["name"] for a in ablations}
+        if unknown:
+            raise ValueError(f"Unknown paper ablations: {sorted(unknown)}")
         ablations = [a for a in ablations if a["name"] in wanted]
     if not ablations:
         raise SystemExit("No ablations selected.")
+    for label, values in (("datasets", datasets), ("seeds", seeds), ("classes", class_ids)):
+        if not values or len(values) != len(set(values)):
+            raise ValueError(f"{label} must be nonempty and unique")
+    if any(c not in range(10) for c in class_ids):
+        raise ValueError("class_ids must be within 0..9")
 
     rows = []
     worst_rows = []
@@ -480,21 +453,20 @@ def main():
         spec = _dataset_spec(dataset, args)
         for seed in seeds:
             cfg_path = cfg_dir / f"cfg_{dataset}_seed{int(seed)}.json"
-            cfg_by_dataset_seed[(dataset, int(seed))] = (
-                _materialize_config(
+            cfg_by_dataset_seed[(dataset, int(seed))] = _materialize_config(
                     repo_root,
                     spec["config"],
                     cfg_path,
                     seed=int(seed),
                     class_ids=class_ids,
                     device=args.device,
-                ),
-                spec["run_id"],
-            )
+                    data_root=args.data_root,
+                    download=args.download,
+                )
 
     for dataset in datasets:
         for seed in seeds:
-            cfg_path, run_id = cfg_by_dataset_seed[(dataset, int(seed))]
+            cfg_path = cfg_by_dataset_seed[(dataset, int(seed))]
             for abl in ablations:
                 name = str(abl["name"])
                 params = _merge_params(
@@ -507,28 +479,24 @@ def main():
                 pair_csv = out_dir / "pairwise" / dataset / f"{name}_seed{int(seed)}_pairwise.csv"
                 log_file = out_dir / "logs" / dataset / f"{name}_seed{int(seed)}.log"
 
-                cmd = _build_cmd(python_bin, cfg_path, run_id, params, per_csv, pair_csv, name)
+                cmd = _build_cmd(python_bin, cfg_path, params, per_csv, pair_csv, name)
 
-                print(f"\\n=== dataset={dataset} seed={int(seed)} variant={name} ===")
+                print(f"\n=== dataset={dataset} seed={int(seed)} variant={name} ===")
                 print(" ".join(shlex.quote(x) for x in cmd))
 
                 if args.resume and per_csv.exists() and pair_csv.exists() and (not args.dry_run):
+                    _validate_outputs(per_csv, pair_csv, class_ids, dataset, int(seed), name, params)
                     rc = 0
                     wall = 0.0
                     print("[resume] using existing outputs")
                 elif args.dry_run:
-                    rc = 0
-                    wall = 0.0
+                    continue
                 else:
                     per_csv.parent.mkdir(parents=True, exist_ok=True)
                     pair_csv.parent.mkdir(parents=True, exist_ok=True)
                     log_file.parent.mkdir(parents=True, exist_ok=True)
-                    if per_csv.exists():
-                        per_csv.unlink()
-                    if pair_csv.exists():
-                        pair_csv.unlink()
-                    if log_file.exists():
-                        log_file.unlink()
+                    if any(p.exists() for p in (per_csv, pair_csv, log_file)):
+                        raise FileExistsError(f"Existing outputs for {dataset}/{name}/seed{seed}; use --resume for complete runs or choose a new --out_dir")
 
                     t0 = time.perf_counter()
                     with log_file.open("w", encoding="utf-8") as lf:
@@ -542,6 +510,9 @@ def main():
                         )
                     wall = float(time.perf_counter() - t0)
                     rc = int(proc.returncode)
+                    if rc != 0:
+                        raise RuntimeError(f"Experiment failed with exit code {rc}; see {log_file}")
+                    _validate_outputs(per_csv, pair_csv, class_ids, dataset, int(seed), name, params)
 
                 mean_auc_combo = _mean_csv(per_csv, "auc_test_combo") if rc == 0 else float("nan")
                 mean_auc_recon = _mean_csv(per_csv, "auc_test_recon") if rc == 0 else float("nan")
@@ -598,6 +569,9 @@ def main():
                 else:
                     print(f"failed: rc={rc} log={log_file}")
 
+    if args.dry_run:
+        return
+
     rows_sorted = sorted(rows, key=lambda r: (r["dataset"], r["variant"], r["seed"]))
     long_csv = out_dir / "s4_noproto_ablation_long.csv"
     _write_csv(
@@ -630,7 +604,7 @@ def main():
         ],
     )
 
-    summary_rows = _aggregate_summary(rows_sorted)
+    summary_rows = _aggregate_summary(rows_sorted, seeds)
     summary_csv = out_dir / "s4_noproto_ablation_summary.csv"
     _write_csv(
         summary_csv,

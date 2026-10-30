@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import hashlib
 import math
 import random
 import sys
@@ -86,6 +88,10 @@ def _image_to_tensor(img: Image.Image) -> torch.Tensor:
 
 
 def _patch_coords(width: int, height: int, patch_size: int, stride: int) -> List[tuple[int, int]]:
+    if min(width, height, patch_size, stride) <= 0:
+        raise ValueError("Image, patch and stride dimensions must be positive")
+    if stride > patch_size:
+        raise ValueError("Patch stride cannot exceed patch size: this would leave uncovered pixels")
     if width <= patch_size:
         xs = [0]
     else:
@@ -141,7 +147,7 @@ def _find_mask(category_root: Path, defect_type: str, image_path: Path) -> Path 
         return None
     gt_dir = category_root / "ground_truth" / defect_type
     if not gt_dir.exists():
-        return None
+        raise FileNotFoundError(f"Missing ground-truth directory: {gt_dir}")
     stem = image_path.stem
     candidates = [
         gt_dir / f"{stem}_mask.png",
@@ -153,13 +159,15 @@ def _find_mask(category_root: Path, defect_type: str, image_path: Path) -> Path 
         if cand.exists():
             return cand
     matches = sorted(gt_dir.glob(f"{stem}*"))
-    return matches[0] if matches else None
+    if len(matches) != 1:
+        raise FileNotFoundError(f"Expected one mask for {image_path}, found {len(matches)} under {gt_dir}")
+    return matches[0]
 
 
 def _category_names(root: Path, selected: str) -> List[str]:
-    if selected.strip().lower() == "all":
-        return [c for c in MVTEC_CATEGORIES if (root / c / "train" / "good").exists()]
-    out = [x.strip() for x in selected.split(",") if x.strip()]
+    out = list(MVTEC_CATEGORIES) if selected.strip().lower() == "all" else [x.strip() for x in selected.split(",") if x.strip()]
+    if not out or len(set(out)) != len(out) or any(c not in MVTEC_CATEGORIES for c in out):
+        raise ValueError("Select unique MVTec categories, or all.")
     missing = [c for c in out if not (root / c / "train" / "good").exists()]
     if missing:
         raise FileNotFoundError(f"Missing MVTec categories under {root}: {missing}")
@@ -293,40 +301,6 @@ def _laplacian(x: torch.Tensor) -> torch.Tensor:
     return F.conv2d(x, kernel, padding=1, groups=c)
 
 
-def _corrupt_training_input(x: torch.Tensor, args: argparse.Namespace) -> torch.Tensor:
-    mode = str(args.train_corruption)
-    if mode == "none":
-        return x
-    out = x.clone()
-    b, c, h, w = out.shape
-    prob = float(args.corruption_prob)
-    if mode in {"noise", "cutout_noise"}:
-        noise = torch.randn_like(out) * float(args.noise_std)
-        apply = (torch.rand(b, 1, 1, 1, device=out.device) < prob).to(out.dtype)
-        out = torch.clamp(out + apply * noise, 0.0, 1.0)
-    if mode in {"cutout", "cutout_noise"}:
-        count = max(1, int(args.cutout_count))
-        min_frac = float(args.cutout_min_frac)
-        max_frac = float(args.cutout_max_frac)
-        for i in range(b):
-            if float(torch.rand((), device=out.device).item()) >= prob:
-                continue
-            for _ in range(count):
-                fh = float(torch.empty((), device=out.device).uniform_(min_frac, max_frac).item())
-                fw = float(torch.empty((), device=out.device).uniform_(min_frac, max_frac).item())
-                rh = max(2, min(h, int(round(fh * h))))
-                rw = max(2, min(w, int(round(fw * w))))
-                yy = int(torch.randint(0, max(1, h - rh + 1), (), device=out.device).item())
-                xx = int(torch.randint(0, max(1, w - rw + 1), (), device=out.device).item())
-                if str(args.cutout_fill) == "zero":
-                    fill = torch.zeros((c, rh, rw), dtype=out.dtype, device=out.device)
-                elif str(args.cutout_fill) == "mean":
-                    fill = out[i].mean(dim=(1, 2), keepdim=True).expand(c, rh, rw)
-                else:
-                    fill = torch.rand((c, rh, rw), dtype=out.dtype, device=out.device)
-                out[i, :, yy : yy + rh, xx : xx + rw] = fill
-    return out
-
 
 def _train(
     model: torch.nn.Module,
@@ -341,7 +315,7 @@ def _train(
         n = 0
         for x in loader:
             target = x.to(device)
-            x_in = _corrupt_training_input(target, args)
+            x_in = target
             opt.zero_grad(set_to_none=True)
             loss, _ = _loss_and_patch_scores(
                 model,
@@ -588,6 +562,7 @@ def _run_category(category: str, mvtec_root: Path, args: argparse.Namespace, dev
     if train_sd < 1e-8:
         train_sd = 1.0
 
+    torch.save({"schema": "pilar-rgb-inference-v1", "config": vars(args), "category": category, "seed": int(args.seed), "epoch": int(args.epochs), "model": {k: v.detach().cpu() for k, v in model.state_dict().items()}, "train_score_mu": train_mu, "train_score_sd": train_sd}, Path(args.output_dir) / f"model_{category}.pt")
     image_results = []
     pixel_scores: List[np.ndarray] = []
     pixel_labels: List[np.ndarray] = []
@@ -820,13 +795,13 @@ def main() -> None:
     parser.add_argument(
         "--image_resize",
         type=int,
-        default=0,
-        help="Optional square resize before extracting patches. Use 0 to keep original image size.",
+        default=512,
+        help="Square resize before extracting patches (paper: 512).",
     )
     parser.add_argument("--patch_size", type=int, default=128)
     parser.add_argument("--train_patch_stride", type=int, default=64)
-    parser.add_argument("--test_patch_stride", type=int, default=32)
-    parser.add_argument("--max_train_patches", type=int, default=20000)
+    parser.add_argument("--test_patch_stride", type=int, default=64)
+    parser.add_argument("--max_train_patches", type=int, default=8000)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -839,27 +814,16 @@ def main() -> None:
     parser.add_argument("--decoder_channels", default="32,16,8")
     parser.add_argument("--refine_decoder", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--l1_weight", type=float, default=0.2)
-    parser.add_argument("--train_topk_pixel_frac", type=float, default=0.0)
-    parser.add_argument("--train_topk_weight", type=float, default=0.0)
-    parser.add_argument("--train_edge_weight", type=float, default=0.0)
-    parser.add_argument("--train_corruption", default="none", choices=["none", "cutout", "noise", "cutout_noise"])
-    parser.add_argument("--corruption_prob", type=float, default=0.75)
-    parser.add_argument("--cutout_count", type=int, default=2)
-    parser.add_argument("--cutout_min_frac", type=float, default=0.08)
-    parser.add_argument("--cutout_max_frac", type=float, default=0.28)
-    parser.add_argument("--cutout_fill", default="random", choices=["random", "zero", "mean"])
-    parser.add_argument("--noise_std", type=float, default=0.08)
     parser.add_argument("--score_topk_pixel_frac", type=float, default=0.01)
     parser.add_argument("--score_topk_weight", type=float, default=1.0)
-    parser.add_argument("--score_edge_weight", type=float, default=0.0)
     parser.add_argument("--score_znorm", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--image_agg", default="topk_mean", choices=["topk_mean", "max", "mean"])
     parser.add_argument("--image_topk_frac", type=float, default=0.05)
-    parser.add_argument("--eval_pixel_auc", action="store_true")
-    parser.add_argument("--eval_aupro", action="store_true")
+    parser.add_argument("--eval_pixel_auc", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--eval_aupro", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
         "--pixel_heatmap_mode",
-        default="patch_score",
+        default="residual",
         choices=["patch_score", "residual"],
         help="Use scalar patch scores or stitched reconstruction residual maps for pixel-AUROC.",
     )
@@ -869,6 +833,7 @@ def main() -> None:
     parser.add_argument("--num_thresholds", type=int, default=400)
     parser.add_argument("--connectivity", type=int, default=8, choices=[4, 8])
     parser.add_argument("--progress_every", type=int, default=25)
+    parser.set_defaults(train_topk_pixel_frac=0.0, train_topk_weight=0.0, train_edge_weight=0.0, train_corruption="none", score_edge_weight=0.0)
     args = parser.parse_args()
 
     set_seed(int(args.seed))
@@ -876,7 +841,10 @@ def main() -> None:
     mvtec_root = _find_mvtec_root(Path(args.data_root))
     categories = _category_names(mvtec_root, args.categories)
     out_dir = Path(args.output_dir)
+    if out_dir.exists() and any(out_dir.iterdir()):
+        raise FileExistsError(f"Output directory is not empty: {out_dir}. Choose a new --output_dir.")
     out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "run_config.json").write_text(json.dumps({"arguments": vars(args), "resolved_device": str(device), "categories": categories, "torch_version": str(torch.__version__), "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}, indent=2) + "\n")
     print(f"MVTec Patch-LIPNet root={mvtec_root} categories={categories} device={device}")
 
     rows = []

@@ -1,0 +1,393 @@
+[
+  {
+    "dataset": "mvtec",
+    "variant": "layer2_only",
+    "categories": [
+      "bottle",
+      "cable",
+      "capsule",
+      "carpet",
+      "grid",
+      "hazelnut",
+      "leather",
+      "metal_nut",
+      "pill",
+      "screw",
+      "tile",
+      "toothbrush",
+      "transistor",
+      "wood",
+      "zipper"
+    ],
+    "seeds": [
+      42
+    ],
+    "metrics": {
+      "image_auc": {
+        "mean": 0.9274090288692125,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "image_ap": {
+        "mean": 0.9663044473346152,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "pixel_auc": {
+        "mean": 0.9143082038860292,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "aupro_30": {
+        "mean": 0.8494938110722386,
+        "sample_sd": null,
+        "n_seeds": 1
+      }
+    },
+    "seed_macros": [
+      {
+        "seed": 42,
+        "image_auc": 0.9274090288692125,
+        "image_ap": 0.9663044473346152,
+        "pixel_auc": 0.9143082038860292,
+        "aupro_30": 0.8494938110722386
+      }
+    ]
+  },
+  {
+    "dataset": "mvtec",
+    "variant": "layer3_only",
+    "categories": [
+      "bottle",
+      "cable",
+      "capsule",
+      "carpet",
+      "grid",
+      "hazelnut",
+      "leather",
+      "metal_nut",
+      "pill",
+      "screw",
+      "tile",
+      "toothbrush",
+      "transistor",
+      "wood",
+      "zipper"
+    ],
+    "seeds": [
+      42
+    ],
+    "metrics": {
+      "image_auc": {
+        "mean": 0.9653764399561013,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "image_ap": {
+        "mean": 0.9881416096416309,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "pixel_auc": {
+        "mean": 0.9648901575374647,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "aupro_30": {
+        "mean": 0.9192256109589415,
+        "sample_sd": null,
+        "n_seeds": 1
+      }
+    },
+    "seed_macros": [
+      {
+        "seed": 42,
+        "image_auc": 0.9653764399561013,
+        "image_ap": 0.9881416096416309,
+        "pixel_auc": 0.9648901575374647,
+        "aupro_30": 0.9192256109589415
+      }
+    ]
+  },
+  {
+    "dataset": "mvtec",
+    "variant": "main",
+    "categories": [
+      "bottle",
+      "cable",
+      "capsule",
+      "carpet",
+      "grid",
+      "hazelnut",
+      "leather",
+      "metal_nut",
+      "pill",
+      "screw",
+      "tile",
+      "toothbrush",
+      "transistor",
+      "wood",
+      "zipper"
+    ],
+    "seeds": [
+      42,
+      43,
+      44,
+      45,
+      46
+    ],
+    "metrics": {
+      "image_auc": {
+        "mean": 0.9690778754832671,
+        "sample_sd": 0.001049674221258248,
+        "n_seeds": 5
+      },
+      "image_ap": {
+        "mean": 0.9885962524202612,
+        "sample_sd": 0.000350285613189304,
+        "n_seeds": 5
+      },
+      "pixel_auc": {
+        "mean": 0.9649076962671501,
+        "sample_sd": 0.0003686978951503493,
+        "n_seeds": 5
+      },
+      "aupro_30": {
+        "mean": 0.9263138089115787,
+        "sample_sd": 0.0004927912205991825,
+        "n_seeds": 5
+      }
+    },
+    "seed_macros": [
+      {
+        "seed": 42,
+        "image_auc": 0.9695239727820885,
+        "image_ap": 0.9888011729749383,
+        "pixel_auc": 0.9653880699697484,
+        "aupro_30": 0.9264069182208319
+      },
+      {
+        "seed": 43,
+        "image_auc": 0.9680903551719671,
+        "image_ap": 0.9883019222897864,
+        "pixel_auc": 0.965006297200635,
+        "aupro_30": 0.926756232299476
+      },
+      {
+        "seed": 44,
+        "image_auc": 0.9700216571980138,
+        "image_ap": 0.9888979938377847,
+        "pixel_auc": 0.9650458171795102,
+        "aupro_30": 0.926702763903312
+      },
+      {
+        "seed": 45,
+        "image_auc": 0.9678133536355416,
+        "image_ap": 0.9881375335989416,
+        "pixel_auc": 0.9644327845936913,
+        "aupro_30": 0.926158436556304
+      },
+      {
+        "seed": 46,
+        "image_auc": 0.9699400386287246,
+        "image_ap": 0.9888426393998548,
+        "pixel_auc": 0.9646655123921656,
+        "aupro_30": 0.9255446935779696
+      }
+    ]
+  },
+  {
+    "dataset": "mvtec",
+    "variant": "no_hard_loss",
+    "categories": [
+      "bottle",
+      "cable",
+      "capsule",
+      "carpet",
+      "grid",
+      "hazelnut",
+      "leather",
+      "metal_nut",
+      "pill",
+      "screw",
+      "tile",
+      "toothbrush",
+      "transistor",
+      "wood",
+      "zipper"
+    ],
+    "seeds": [
+      42
+    ],
+    "metrics": {
+      "image_auc": {
+        "mean": 0.9401322936758271,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "image_ap": {
+        "mean": 0.9754471884066777,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "pixel_auc": {
+        "mean": 0.9579922467341961,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "aupro_30": {
+        "mean": 0.9137637446696151,
+        "sample_sd": null,
+        "n_seeds": 1
+      }
+    },
+    "seed_macros": [
+      {
+        "seed": 42,
+        "image_auc": 0.9401322936758271,
+        "image_ap": 0.9754471884066777,
+        "pixel_auc": 0.9579922467341961,
+        "aupro_30": 0.9137637446696151
+      }
+    ]
+  },
+  {
+    "dataset": "mvtec",
+    "variant": "no_inhibition",
+    "categories": [
+      "bottle",
+      "cable",
+      "capsule",
+      "carpet",
+      "grid",
+      "hazelnut",
+      "leather",
+      "metal_nut",
+      "pill",
+      "screw",
+      "tile",
+      "toothbrush",
+      "transistor",
+      "wood",
+      "zipper"
+    ],
+    "seeds": [
+      42
+    ],
+    "metrics": {
+      "image_auc": {
+        "mean": 0.9682949070775277,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "image_ap": {
+        "mean": 0.9872229549026416,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "pixel_auc": {
+        "mean": 0.9648449108627106,
+        "sample_sd": null,
+        "n_seeds": 1
+      },
+      "aupro_30": {
+        "mean": 0.9271217279837152,
+        "sample_sd": null,
+        "n_seeds": 1
+      }
+    },
+    "seed_macros": [
+      {
+        "seed": 42,
+        "image_auc": 0.9682949070775277,
+        "image_ap": 0.9872229549026416,
+        "pixel_auc": 0.9648449108627106,
+        "aupro_30": 0.9271217279837152
+      }
+    ]
+  },
+  {
+    "dataset": "visa",
+    "variant": "main",
+    "categories": [
+      "candle",
+      "capsules",
+      "cashew",
+      "chewinggum",
+      "fryum",
+      "macaroni1",
+      "macaroni2",
+      "pcb1",
+      "pcb2",
+      "pcb3",
+      "pcb4",
+      "pipe_fryum"
+    ],
+    "seeds": [
+      42,
+      43,
+      44,
+      45,
+      46
+    ],
+    "metrics": {
+      "image_auc": {
+        "mean": 0.9253157535753576,
+        "sample_sd": 0.0007451660681530878,
+        "n_seeds": 5
+      },
+      "image_ap": {
+        "mean": 0.9241191000177489,
+        "sample_sd": 0.0013372025307201811,
+        "n_seeds": 5
+      },
+      "pixel_auc": {
+        "mean": 0.978359195218651,
+        "sample_sd": 0.0004272766680569826,
+        "n_seeds": 5
+      },
+      "aupro_30": {
+        "mean": 0.9029517961334035,
+        "sample_sd": 0.0013631081357742352,
+        "n_seeds": 5
+      }
+    },
+    "seed_macros": [
+      {
+        "seed": 42,
+        "image_auc": 0.926447194719472,
+        "image_ap": 0.9259688027050579,
+        "pixel_auc": 0.978858172430482,
+        "aupro_30": 0.9050594673374307
+      },
+      {
+        "seed": 43,
+        "image_auc": 0.9255362761276128,
+        "image_ap": 0.9244336714080151,
+        "pixel_auc": 0.9784690244547296,
+        "aupro_30": 0.9032394285240513
+      },
+      {
+        "seed": 44,
+        "image_auc": 0.9251199119911991,
+        "image_ap": 0.9228102673980036,
+        "pixel_auc": 0.9779417175472207,
+        "aupro_30": 0.9023795406244852
+      },
+      {
+        "seed": 45,
+        "image_auc": 0.9244330308030804,
+        "image_ap": 0.9228101431197937,
+        "pixel_auc": 0.9778916237662529,
+        "aupro_30": 0.9013627706758246
+      },
+      {
+        "seed": 46,
+        "image_auc": 0.9250423542354236,
+        "image_ap": 0.9245726154578742,
+        "pixel_auc": 0.9786354378945697,
+        "aupro_30": 0.9027177735052256
+      }
+    ]
+  }
+]

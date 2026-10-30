@@ -1,0 +1,86 @@
+{
+  "scores": {
+    "identical": true,
+    "max_absolute_difference": 0.0
+  },
+  "heat_maps": {
+    "identical": true,
+    "max_absolute_difference": 0.0
+  },
+  "masks": {
+    "identical": true,
+    "max_absolute_difference": null
+  },
+  "labels": {
+    "identical": true,
+    "max_absolute_difference": 0.0
+  },
+  "images": {
+    "identical": true,
+    "max_absolute_difference": null
+  },
+  "metrics": {
+    "image_auc": {
+      "reproduced": 0.9976190476190476,
+      "reference": 0.9976190476190476,
+      "difference": 0.0
+    },
+    "image_ap": {
+      "reproduced": 0.9992440151090305,
+      "reference": 0.9992440151090305,
+      "difference": 0.0
+    },
+    "pixel_auc": {
+      "reproduced": 0.9820492105915917,
+      "reference": 0.9820492105915917,
+      "difference": 0.0
+    },
+    "aupro_30": {
+      "reproduced": 0.9595557024492737,
+      "reference": 0.9595557024492737,
+      "difference": 0.0
+    }
+  },
+  "date": "2026-10-30",
+  "scope": "MVTec bottle, seed42,10epochs,209normal training images and83test images. Fullpaper matrix not retrained for this code review.",
+  "environment": {
+    "torch": "2.10.0",
+    "torchvision": "0.25.0",
+    "numpy": "2.4.2",
+    "pillow": "12.1.0"
+  },
+  "python": "3.12.2",
+  "device": "mps",
+  "validation_source_sha256": {
+    "lipnet/__init__.py": "a562d901cd240a3ed02f0440a207dd500397ed8cf285b48da10370cbd6437a02",
+    "lipnet/checkpoint.py": "d468cd7ab098fbf25e834bdf1ac4dfcb0adae1ef428b2ec66470d6e50712c45f",
+    "lipnet/cost.py": "a269d05f2707ef56668b537be24c4b6112aa5680c9f7603581f324df8e2c5a5a",
+    "lipnet/data.py": "e17e5a5016c153371c5512a49783b68ad8898cebb35be6b67a2ab089d3347caa",
+    "lipnet/efficiency.py": "1ce919e55ec60f48f6f9abd02e72228debb67f23e5268a123d46652579a865c5",
+    "lipnet/inference.py": "f80f4721c3d1d0a081170e67d51d72ed972080a63e81acf62bf5195d9883ecb3",
+    "lipnet/inhibition.py": "462b4f81a9b7dc8955f700d9969cf69a895e4cbe047e78ca302c1afbb352f002",
+    "lipnet/metrics.py": "d81683ffd0789a9413cedef287d7c006cab1718ba261d06dd5cd296bb43b05f0",
+    "lipnet/model.py": "df10f412c383f43b2dfeabbb44baeda1ab23ac284bee67aee6e5c2b207c206b5",
+    "lipnet/one_class.py": "856282b809efdbee0b0a0e9c123b39b697a5363d8113273b8541361d21ec9e7a",
+    "lipnet/pro_metrics.py": "6fc409052d27295fecc4e97bdd84508a04ffff1848e66327999142db4fa06b1d",
+    "lipnet/utils.py": "6e083f648ac3a993dbff445551784223cad1d6fa6f29fe520ba4adc10512531b",
+    "scripts/__init__.py": "c4b5bfd87d19ca853f268e0fd66e9ef24ac23f23fdcd479eeff25f124716ea57",
+    "scripts/ablation_s4_noproto_study.py": "0ccc7c540b97ef99ccbc786359bd5612293442e5af3e532c867c26f8f4b98d91",
+    "scripts/analyze_cifar10_pairwise_confusion.py": "e07fd9093099ee23c31782cdd12739735f72196516b5aafb957d6e6e7a2188e8",
+    "scripts/benchmark_pilar.py": "10927628961e583608f3761620f76d1b79780b4f319ab70263222db3170502dc",
+    "scripts/evaluate_checkpoint.py": "0eb51173db1aee674a14f1b5926aeb5880dedbfce219e8686721d08b39d1e69d",
+    "scripts/generate_mvtec_qualitative.py": "dc94a3706e21a715a437da93f0bbb0f4cf08930aa92a29f45c94501451f0d9f2",
+    "scripts/oneclass_auc_per_class.py": "7f80a16359791ddfe05aa55ad7c0852bd008e8b3b374791c210c2bd05fe531f0",
+    "scripts/reproduce_paper.py": "04c6b89ccad69189a62e19896a1b2938aa0a1237ddf3b9c82aab86878d4337c3",
+    "scripts/run_cifar10_feature_lipnet_fcn.py": "2605ce046443bdafa4a50df0c1273c93e9e84d7130c128da3a59ea8d95ef65ba",
+    "scripts/run_mvtec_feature_lipnet.py": "0e0902ae3764ee61bcfac49899418c9627b2256aa52ecf700ccb777d09a365cd",
+    "scripts/run_mvtec_feature_lipnet_fcn_arch_sweep.py": "fe381fffec99a652eaf81b25bebea86a55bc96c27e7da86e4f472da2a2071d4f",
+    "scripts/run_mvtec_feature_lipnet_fcn_aupro.py": "8159269da205efaae581bc7afb8c98d20d90c908b2d7e4e9e3ca578181b7614a",
+    "scripts/run_mvtec_feature_lipnet_fcn_final_validation.py": "4ed1f1eb172de587b741a77a286d97f7302b1d66169dfb3f77e51dbb270dc8a7",
+    "scripts/run_mvtec_feature_lipnet_fcn_sweep.py": "7a786595dbe0b1f33a1b27418d001a58633e2c47ebe2cc6c6a85db051ded1549",
+    "scripts/run_mvtec_patch_lipnet.py": "275d67bb85a0d137fb00ef54cc4d39db7a5676d9839ad7bb5dd2a602d5bddf5f",
+    "scripts/run_mvtec_rgb_lipnet_aupro_models.py": "436e859bc77c87741d8e2d0066db914ecc3f94cff35ecfb459641a98430e00d1"
+  },
+  "checkpoint_reload": "All83scores,256x256maps,andfourmetrics exactlyequal to originalpaper artifacts",
+  "timing": "Diagnostic only: latencybatch1/throughputbatch16 completed; not a replacement for the fullpaper timing campaign"
+}

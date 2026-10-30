@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import argparse
-import math
 import sys
+import math
 from pathlib import Path
-from typing import Iterable, List
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
+from typing import Iterable, List
 
 import numpy as np
 import torch
@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 from lipnet.efficiency import estimate_forward_flops_per_sample, model_size_metrics
 from lipnet.metrics import pr_auc, roc_auc
 from lipnet.utils import resolve_device, set_seed
-from run_mvtec_feature_lipnet_fcn_sweep import (
+from scripts.run_mvtec_feature_lipnet_fcn_sweep import (
     MVTecImageDataset,
     ResNetMultiFeatureExtractor,
     _aggregate_map_score,
@@ -33,7 +33,7 @@ from run_mvtec_feature_lipnet_fcn_sweep import (
     _score_image,
     _train_models,
 )
-from run_mvtec_patch_lipnet import (
+from scripts.run_mvtec_patch_lipnet import (
     _category_names,
     _find_mvtec_root,
     _list_images,
@@ -43,191 +43,15 @@ from run_mvtec_patch_lipnet import (
     _test_images,
     _write_csv,
 )
-from run_mvtec_patch_lipnet import _image_to_tensor as _rgb_to_tensor
+from scripts.run_mvtec_patch_lipnet import _image_to_tensor as _rgb_to_tensor
 
 
-def _connected_regions(mask: np.ndarray, connectivity: int) -> list[tuple[np.ndarray, np.ndarray]]:
-    mask = np.asarray(mask, dtype=bool)
-    if mask.ndim != 2:
-        raise ValueError(f"Expected 2-D mask, got shape={mask.shape}")
-    if not mask.any():
-        return []
-
-    if int(connectivity) == 4:
-        neighbors = [(-1, 0), (0, -1), (0, 1), (1, 0)]
-    elif int(connectivity) == 8:
-        neighbors = [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ]
-    else:
-        raise ValueError("--connectivity must be 4 or 8")
-
-    height, width = mask.shape
-    visited = np.zeros_like(mask, dtype=bool)
-    regions: list[tuple[np.ndarray, np.ndarray]] = []
-    start_ys, start_xs = np.nonzero(mask)
-
-    for sy, sx in zip(start_ys.tolist(), start_xs.tolist()):
-        if visited[sy, sx]:
-            continue
-        stack = [(sy, sx)]
-        visited[sy, sx] = True
-        ys: list[int] = []
-        xs: list[int] = []
-
-        while stack:
-            y, x = stack.pop()
-            ys.append(y)
-            xs.append(x)
-            for dy, dx in neighbors:
-                ny = y + dy
-                nx = x + dx
-                if ny < 0 or ny >= height or nx < 0 or nx >= width:
-                    continue
-                if visited[ny, nx] or not mask[ny, nx]:
-                    continue
-                visited[ny, nx] = True
-                stack.append((ny, nx))
-
-        regions.append((np.asarray(ys, dtype=np.int32), np.asarray(xs, dtype=np.int32)))
-
-    return regions
-
-
-def _thresholds_from_maps(heat_maps: list[np.ndarray], num_thresholds: int) -> np.ndarray:
-    scores = np.concatenate([np.asarray(x, dtype=np.float64).reshape(-1) for x in heat_maps])
-    scores = scores[np.isfinite(scores)]
-    if scores.size == 0:
-        return np.array([0.0], dtype=np.float64)
-
-    lo = float(scores.min())
-    hi = float(scores.max())
-    eps = max(1e-12, abs(hi - lo) * 1e-6, abs(hi) * 1e-9)
-    if hi <= lo:
-        return np.array([hi + eps, lo - eps], dtype=np.float64)
-
-    n = max(2, int(num_thresholds))
-    quantiles = np.linspace(0.0, 1.0, n)
-    thresholds = np.quantile(scores, 1.0 - quantiles)
-    thresholds = np.concatenate(([hi + eps], thresholds, [lo - eps]))
-    thresholds = np.unique(thresholds)
-    return thresholds[::-1].astype(np.float64)
-
-
-def _clip_curve_at_fpr(curve: list[dict], fpr_limit: float) -> list[dict]:
-    if not curve:
-        return []
-
-    pairs = sorted((float(r["fpr"]), float(r["pro"])) for r in curve if math.isfinite(float(r["fpr"])) and math.isfinite(float(r["pro"])))
-    if not pairs:
-        return []
-
-    dedup_fpr: list[float] = []
-    dedup_pro: list[float] = []
-    for fpr, pro in pairs:
-        if dedup_fpr and abs(fpr - dedup_fpr[-1]) <= 1e-12:
-            dedup_pro[-1] = max(dedup_pro[-1], pro)
-        else:
-            dedup_fpr.append(fpr)
-            dedup_pro.append(pro)
-
-    fpr_arr = np.asarray(dedup_fpr, dtype=np.float64)
-    pro_arr = np.maximum.accumulate(np.asarray(dedup_pro, dtype=np.float64))
-    limit = float(fpr_limit)
-
-    if fpr_arr[0] > 0.0:
-        fpr_arr = np.concatenate(([0.0], fpr_arr))
-        pro_arr = np.concatenate(([0.0], pro_arr))
-
-    if fpr_arr[-1] < limit:
-        fpr_arr = np.concatenate((fpr_arr, [limit]))
-        pro_arr = np.concatenate((pro_arr, [pro_arr[-1]]))
-    elif not np.any(np.isclose(fpr_arr, limit, rtol=0.0, atol=1e-12)):
-        pro_at_limit = float(np.interp(limit, fpr_arr, pro_arr))
-        keep = fpr_arr < limit
-        fpr_arr = np.concatenate((fpr_arr[keep], [limit]))
-        pro_arr = np.concatenate((pro_arr[keep], [pro_at_limit]))
-    else:
-        keep = fpr_arr <= limit
-        fpr_arr = fpr_arr[keep]
-        pro_arr = pro_arr[keep]
-
-    return [{"fpr": float(fpr), "pro": float(pro)} for fpr, pro in zip(fpr_arr, pro_arr)]
-
-
-def _aupro_at_fpr(
-    heat_maps: list[np.ndarray],
-    mask_maps: list[np.ndarray],
-    fpr_limit: float,
-    num_thresholds: int,
-    connectivity: int,
-) -> tuple[dict, list[dict], list[dict]]:
-    if len(heat_maps) != len(mask_maps):
-        raise ValueError("heat_maps and mask_maps must have the same length")
-    if not heat_maps:
-        empty = {
-            "aupro": float("nan"),
-            "n_regions": 0,
-            "n_normal_pixels": 0,
-            "fpr_limit": float(fpr_limit),
-            "num_thresholds": int(num_thresholds),
-        }
-        return empty, [], []
-
-    masks = [np.asarray(x, dtype=bool) for x in mask_maps]
-    heats = [np.asarray(x, dtype=np.float32) for x in heat_maps]
-    regions_by_image = [_connected_regions(mask, int(connectivity)) for mask in masks]
-    n_regions = int(sum(len(regions) for regions in regions_by_image))
-    normal_pixels = int(sum((~mask).sum() for mask in masks))
-
-    if n_regions == 0 or normal_pixels == 0:
-        info = {
-            "aupro": float("nan"),
-            "n_regions": n_regions,
-            "n_normal_pixels": normal_pixels,
-            "fpr_limit": float(fpr_limit),
-            "num_thresholds": int(num_thresholds),
-        }
-        return info, [], []
-
-    raw_curve: list[dict] = []
-    for threshold in _thresholds_from_maps(heats, int(num_thresholds)):
-        false_positive_pixels = 0
-        pro_total = 0.0
-
-        for heat, mask, regions in zip(heats, masks, regions_by_image):
-            pred = heat >= threshold
-            false_positive_pixels += int(np.logical_and(pred, ~mask).sum())
-            for ys, xs in regions:
-                pro_total += float(pred[ys, xs].mean())
-
-        fpr = false_positive_pixels / max(1, normal_pixels)
-        pro = pro_total / max(1, n_regions)
-        raw_curve.append({"threshold": float(threshold), "fpr": float(fpr), "pro": float(pro)})
-
-    clipped_curve = _clip_curve_at_fpr(raw_curve, float(fpr_limit))
-    if clipped_curve:
-        fpr = np.asarray([r["fpr"] for r in clipped_curve], dtype=np.float64)
-        pro = np.asarray([r["pro"] for r in clipped_curve], dtype=np.float64)
-        aupro = float(np.trapz(pro, fpr) / max(1e-12, float(fpr_limit)))
-    else:
-        aupro = float("nan")
-
-    info = {
-        "aupro": aupro,
-        "n_regions": n_regions,
-        "n_normal_pixels": normal_pixels,
-        "fpr_limit": float(fpr_limit),
-        "num_thresholds": int(num_thresholds),
-    }
-    return info, raw_curve, clipped_curve
+from lipnet.pro_metrics import (
+    connected_regions as _connected_regions,
+    thresholds_from_maps as _thresholds_from_maps,
+    clip_curve_at_fpr as _clip_curve_at_fpr,
+    aupro_at_fpr as _aupro_at_fpr,
+)
 
 
 def _count_params(model: nn.Module, trainable_only: bool = False) -> int:
@@ -311,6 +135,17 @@ def _evaluate_norm(
     )
 
     combo_label = f"{_safe_label(layers_label)}_hard{_safe_label(hard_label)}_{score_norm}"
+    if getattr(args, "save_artifacts", False):
+        from lipnet.checkpoint import export_inference
+        directory = Path(args.output_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        export_inference(models, backbone, stats, args, directory / f"model_{category}_{combo_label}.pt")
+        path = directory / f"maps_{category}_{combo_label}.npz"
+        with path.with_suffix(".tmp").open("wb") as f:
+            np.savez_compressed(f, heat_maps=np.stack(heat_maps), masks=np.stack(mask_maps),
+                                images=np.asarray([x["image"] for x in image_results]),
+                                labels=y, scores=s)
+        path.with_suffix(".tmp").replace(path)
     _write_csv(
         Path(args.output_dir) / f"results_{category}_{combo_label}.csv",
         image_results,
@@ -526,6 +361,7 @@ def main() -> None:
     parser.add_argument("--feature_rf_schedule", default="3,3")
     parser.add_argument("--feature_overlap_schedule", default="2,2")
     parser.add_argument("--feature_decoder_channels", default="64,32")
+    parser.add_argument("--feature_inhibition", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--inhibition_h", type=int, default=1)
     parser.add_argument("--refine_decoder", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--l1_weight", type=float, default=0.0)

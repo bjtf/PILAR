@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import hashlib
 import math
 import sys
 from dataclasses import dataclass
@@ -24,8 +25,8 @@ from torchvision import datasets, transforms
 from lipnet.efficiency import estimate_forward_flops_per_sample, model_size_metrics
 from lipnet.metrics import pr_auc, roc_auc
 from lipnet.utils import resolve_device, set_seed
-from run_mvtec_feature_lipnet import _make_feature_model
-from run_mvtec_feature_lipnet_fcn_sweep import (
+from scripts.run_mvtec_feature_lipnet import _make_feature_model
+from scripts.run_mvtec_feature_lipnet_fcn_sweep import (
     LayerStats,
     ResNetMultiFeatureExtractor,
     _apply_score_norm,
@@ -445,6 +446,8 @@ def _run_one(
             }
         )
         summaries.append(summary)
+        stats = _make_stats(train_maps, str(score_norm), float(args.quantile_low), float(args.quantile_high))
+        torch.save({"schema": "pilar-feature-classification-inference-v1", "config": vars(args), "seed": int(seed), "normal_class": int(class_id), "epoch": int(args.epochs), "backbone": {k: v.detach().cpu() for k, v in backbone.state_dict().items()}, "models": {layer: {k: v.detach().cpu() for k, v in model.state_dict().items()} for layer, model in models.items()}, "feature_shapes": shapes, "stats": {layer: vars(value) for layer, value in stats.items()}, "train_indices": split.train_idx.tolist(), "test_indices": split.test_idx.tolist()}, Path(args.output_dir) / f"model_seed{seed}_class{class_id}_{score_norm}.pt")
         label = f"seed{seed}_class{class_id}_{str(score_norm)}"
         _write_csv(
             Path(args.output_dir) / f"scores_{label}.csv",
@@ -460,26 +463,30 @@ def _run_one(
     return summaries
 
 
-def _summarize(rows: list[dict]) -> list[dict]:
+def _summarize(rows: list[dict], expected_classes=None, expected_seeds=None) -> list[dict]:
+    """Average classes within a seed; SD uses independent seed macros."""
+    expected_classes = set(range(10) if expected_classes is None else expected_classes)
+    expected_seeds = set(range(42, 47) if expected_seeds is None else expected_seeds)
+    expected = {(seed, cls) for seed in expected_seeds for cls in expected_classes}
     out = []
     keys = sorted({(r["feature_layers"], r["hard_loss"], r["score_norm"]) for r in rows})
+    if not rows:
+        raise ValueError("No feature results to summarize")
     for layers, hard, norm in keys:
-        sub = [r for r in rows if r["feature_layers"] == layers and r["hard_loss"] == hard and r["score_norm"] == norm]
+        sub = [r for r in rows if (r["feature_layers"], r["hard_loss"], r["score_norm"]) == (layers, hard, norm)]
+        pairs = [(int(r["seed"]), int(r["normal_class"])) for r in sub]
+        if len(pairs) != len(set(pairs)) or set(pairs) != expected:
+            raise ValueError(f"Incomplete/duplicate class--seed matrix for {layers}/{hard}/{norm}")
         for metric in ("auc", "ap", "oracle_auc"):
-            vals = np.array([float(r[metric]) for r in sub], dtype=np.float64)
-            vals = vals[np.isfinite(vals)]
-            out.append(
-                {
-                    "feature_layers": layers,
-                    "hard_loss": hard,
-                    "score_norm": norm,
-                    "metric": metric,
-                    "mean": float(vals.mean()) if vals.size else float("nan"),
-                    "std": float(vals.std(ddof=1)) if vals.size > 1 else 0.0,
-                    "n": int(vals.size),
-                    "n_inverted": int(sum(int(r["inverted"]) for r in sub)),
-                }
-            )
+            vals = np.asarray([float(r[metric]) for r in sub])
+            if not np.isfinite(vals).all():
+                raise ValueError(f"Non-finite {metric} in feature results")
+            macros = np.asarray([np.mean([float(r[metric]) for r in sub if int(r["seed"]) == seed]) for seed in sorted(expected_seeds)])
+            out.append({"feature_layers": layers, "hard_loss": hard, "score_norm": norm,
+                        "metric": metric, "mean": float(macros.mean()),
+                        "std": float(macros.std(ddof=1)) if len(macros) > 1 else float("nan"),
+                        "n": len(macros), "n_classes": len(expected_classes),
+                        "n_inverted": sum(int(r["inverted"]) for r in sub)})
     return out
 
 
@@ -489,10 +496,10 @@ def main() -> None:
     parser.add_argument("--data_root", default="data")
     parser.add_argument("--output_dir", default="runs/benchmark/cifar10_feature_lipnet_fcn_layer23_hard_v1")
     parser.add_argument("--classes", default="0,1,2,3,4,5,6,7,8,9")
-    parser.add_argument("--seeds", default="42")
+    parser.add_argument("--seeds", default="42,43,44,45,46")
     parser.add_argument("--device", default="mps_if_available")
     parser.add_argument("--download", action="store_true")
-    parser.add_argument("--image_resize", type=int, default=224)
+    parser.add_argument("--image_resize", type=int, default=128)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--eval_batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=8)
@@ -521,12 +528,21 @@ def main() -> None:
     args = parser.parse_args()
 
     out_dir = Path(args.output_dir)
+    if out_dir.exists() and any(out_dir.iterdir()):
+        raise FileExistsError(f"Output directory is not empty: {out_dir}. Choose a new --output_dir.")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "run_config.json").write_text(json.dumps(vars(args), indent=2, sort_keys=True), encoding="utf-8")
 
     device = resolve_device(args.device)
+    (out_dir / "run_metadata.json").write_text(json.dumps({"torch_version": str(torch.__version__), "resolved_device": str(device), "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}, indent=2) + "\n")
     classes = _parse_ints(args.classes)
     seeds = _parse_ints(args.seeds)
+    if not classes or len(classes) != len(set(classes)) or any(c not in range(10) for c in classes):
+        raise ValueError("classes must be nonempty, unique and within 0..9")
+    if not seeds or len(seeds) != len(set(seeds)):
+        raise ValueError("seeds must be nonempty and unique")
+    if min(args.epochs, args.batch_size, args.eval_batch_size, args.image_resize) <= 0 or not 0 < args.image_topk_frac <= 1:
+        raise ValueError("epochs/batches/resolution must be positive and image_topk_frac in (0,1]")
     layers = _parse_layer_set(args.feature_layers)
     hard_setting = _parse_hard_setting(args.hard_loss)
     train_ds, test_ds = _load_dataset(str(args.dataset), Path(args.data_root), int(args.image_resize), bool(args.download))
@@ -572,11 +588,11 @@ def main() -> None:
         "quantile_high",
     ]
     _write_csv(out_dir / "results_long.csv", all_rows, fieldnames)
-    summary = _summarize(all_rows)
+    summary = _summarize(all_rows, classes, seeds)
     _write_csv(
         out_dir / "summary.csv",
         summary,
-        ["feature_layers", "hard_loss", "score_norm", "metric", "mean", "std", "n", "n_inverted"],
+        ["feature_layers", "hard_loss", "score_norm", "metric", "mean", "std", "n", "n_classes", "n_inverted"],
     )
     print(f"Saved: {out_dir / 'results_long.csv'}")
     print(f"Saved: {out_dir / 'summary.csv'}")

@@ -1,0 +1,11 @@
+# Industrial PILAR environment used for the paper (Python 3.12.2, Apple MPS).
+# NumPy 2.4 and SciPy 1.17 require Python >= 3.11.
+torch==2.10.0
+torchvision==0.25.0
+numpy==2.4.2
+scipy==1.17.1
+Pillow==12.1.0
+
+# Analysis tools for this release, not dependencies of the original training.
+matplotlib==3.9.4
+pandas==2.3.3

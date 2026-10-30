@@ -153,6 +153,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build CIFAR-10 pairwise anomaly confusion matrices from scores.")
     parser.add_argument("--scores_dir", required=True)
     parser.add_argument("--score_norm", default="zscore")
+    parser.add_argument("--seeds", default="42,43,44,45,46")
     parser.add_argument("--output_dir", default="")
     parser.add_argument("--plot", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
@@ -167,6 +168,14 @@ def main() -> None:
     if not files:
         raise FileNotFoundError(f"No score files matching scores_seed*_class*_{norm}.csv in {scores_dir}")
 
+    seeds = [int(x) for x in args.seeds.split(",") if x.strip()]
+    if not seeds or len(seeds) != len(set(seeds)):
+        raise ValueError("seeds must be nonempty and unique")
+    expected = {(seed, cls) for seed in seeds for cls in range(10)}
+    found = {(int(m.group("seed")), int(m.group("class_id"))) for p in files if (m := SCORE_RE.match(p.name))}
+    if found != expected:
+        raise ValueError(f"Incomplete or unexpected score matrix; missing={sorted(expected - found)}, unexpected={sorted(found - expected)}")
+
     for path in files:
         match = SCORE_RE.match(path.name)
         if not match:
@@ -174,15 +183,20 @@ def main() -> None:
         seed = int(match.group("seed"))
         normal_id = int(match.group("class_id"))
         rows = _read_scores(path)
+        indices = [int(row["test_index"]) for row in rows]
+        if len(indices) != len(set(indices)):
+            raise ValueError(f"Duplicate test indices in {path}")
+        if {int(row["true_class"]) for row in rows} != set(range(10)) or any(int(row["normal_class"]) != normal_id for row in rows):
+            raise ValueError(f"Incomplete or inconsistent class identities in {path}")
         normal_scores = np.array([float(r["score"]) for r in rows if int(r["true_class"]) == normal_id], dtype=np.float64)
         if normal_scores.size == 0:
-            continue
+            raise ValueError(f"Missing normal scores in {path}")
         for anomaly_id in range(len(CIFAR10_CLASSES)):
             if anomaly_id == normal_id:
                 continue
             anomaly_scores = np.array([float(r["score"]) for r in rows if int(r["true_class"]) == anomaly_id], dtype=np.float64)
             if anomaly_scores.size == 0:
-                continue
+                raise ValueError(f"Missing anomaly class {anomaly_id} in {path}")
             scores = np.concatenate([normal_scores, anomaly_scores])
             labels = np.concatenate(
                 [

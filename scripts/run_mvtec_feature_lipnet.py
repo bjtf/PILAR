@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import csv
 import math
-import sys
 from pathlib import Path
-from typing import Iterable, List
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
+from typing import Iterable, List
 
 import numpy as np
 import torch
@@ -23,7 +23,7 @@ from lipnet.efficiency import estimate_forward_flops_per_sample, model_size_metr
 from lipnet.metrics import pr_auc, roc_auc
 from lipnet.one_class import LIPNetAutoencoder
 from lipnet.utils import resolve_device, set_seed
-from run_mvtec_patch_lipnet import (
+from scripts.run_mvtec_patch_lipnet import (
     MVTecPatchDataset,
     _aggregate_patch_scores,
     _category_names,
@@ -93,6 +93,7 @@ def _make_feature_model(args: argparse.Namespace, feature_shape: tuple[int, int,
     if not (len(channels) == len(rfs) == len(overlaps)):
         raise ValueError("--feature_encoder_channels, --feature_rf_schedule, and --feature_overlap_schedule must match length")
 
+    inhibition_enabled = bool(getattr(args, "feature_inhibition", True))
     layers = []
     for i, (ch, rf, ov) in enumerate(zip(channels, rfs, overlaps)):
         layers.append(
@@ -102,7 +103,7 @@ def _make_feature_model(args: argparse.Namespace, feature_shape: tuple[int, int,
                 "activation": "relu",
                 "channels": int(ch),
                 "inhibition": {
-                    "enabled": True,
+                    "enabled": inhibition_enabled,
                     "mode": "fixed" if i == 0 else "radial",
                     "delta": 1.0,
                     "h": int(args.inhibition_h),
@@ -404,6 +405,7 @@ def main() -> None:
     parser.add_argument("--feature_rf_schedule", default="3,3")
     parser.add_argument("--feature_overlap_schedule", default="2,2")
     parser.add_argument("--feature_decoder_channels", default="64,32")
+    parser.add_argument("--feature_inhibition", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--inhibition_h", type=int, default=1)
     parser.add_argument("--refine_decoder", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--l1_weight", type=float, default=0.0)

@@ -1,32 +1,90 @@
 # Reference results
 
-Run `python analysis/verify_reference_results.py` to verify this table against
-the tracked CSV files.
+`python analysis/verify_reference_results.py` verifies the tracked matrices and
+recomputes the industrial image metrics from prediction scores. All metrics in
+the data files use the range `[0,1]`; tables here show percentages.
 
-| Regime | Dataset | Main reference metric | Value | Artifact |
-|---|---|---:|---:|---|
-| Feature-PILAR-FCN | MVTec AD | Image-AUROC | 0.969487 | `results/reference/mvtec/feature_wide64/summary_arch_sweep.csv` |
-| Feature-PILAR-FCN | MVTec AD | Image-AP | 0.988747 | same file |
-| Feature-PILAR-FCN | MVTec AD | Pixel-AUROC | 0.965398 | same file |
-| Feature-PILAR-FCN | MVTec AD | AUPRO@30 | 0.926461 | same file |
-| whole-image RGB | MVTec AD | Image-AUROC | 0.695889 | `results/reference/mvtec/whole_rgb/summary_aupro.csv` |
-| patchwise RGB | MVTec AD | Image-AUROC | 0.696582 | `results/reference/mvtec/patch_rgb/summary_aupro.csv` |
-| Feature-PILAR-FCN | CIFAR-10 | one-vs-rest AUC | 0.812406 ± 0.077711 | `results/reference/cifar10/feature/summary.csv` |
-| Feature-PILAR-FCN | Fashion-MNIST | one-vs-rest AUC | 0.936112 ± 0.046452 | `results/reference/fashion_mnist/feature/summary.csv` |
-| Strict RGB PILAR | CIFAR-10 | one-vs-rest AUC | 0.573526 ± 0.117971 | `results/reference/strict/cifar10/summary_method_metrics.csv` |
-| Strict grayscale PILAR | Fashion-MNIST | one-vs-rest AUC | 0.875989 ± 0.074775 | `results/reference/strict/mnist_fashion_mnist/summary_method_metrics.csv` |
-| Strict grayscale PILAR | MNIST | one-vs-rest AUC | 0.946460 ± 0.050337 | same file |
+## Main industrial results
 
-The final MVTec system contains 2,782,784 frozen backbone parameters and
-1,547,782 trainable PILAR-head parameters (4,330,566 total). The analytical
-inference estimate is 16.0859 GFLOPs per 512×512 image; most of that cost is in
-the frozen ResNet18 rather than the PILAR heads.
+Mean ± sample SD over five seed macros, each averaging all categories:
 
-The subtype review-budget artifact contains 73 defect subtypes. Thirty-seven
-reach the finite-sample oracle review fraction at 90% recall. Per-image score
-files used to derive this analysis are included under
-`results/reference/mvtec/feature_wide64/details`.
+| Dataset | Categories | Image-AUROC | Image-AP | Pixel-AUROC | AUPRO@30 |
+|---|---:|---:|---:|---:|---:|
+| MVTec AD | 15 | 96.9078 ± 0.1050 | 98.8596 ± 0.0350 | 96.4908 ± 0.0369 | 92.6314 ± 0.0493 |
+| VisA | 12 | 92.5316 ± 0.0745 | 92.4119 ± 0.1337 | 97.8359 ± 0.0427 | 90.2952 ± 0.1363 |
 
-The 36-row feature-domain diagnostic over `screw` and `carpet` is tracked in
-`results/reference/mvtec/feature_ablation/summary.csv`. Despite the historical
-source-directory name, that completed result contains no `grid` category.
+Both use input 512×512, ten training epochs and the final checkpoint.
+
+## MVTec component ablations
+
+All 15 categories, seed 42, ten epochs. Single-seed values have no between-seed
+standard deviation. The main row reuses the seed-42 result from the main
+experiment; it is not an additional independent repetition.
+
+| Setting | Image-AUROC | Image-AP | Pixel-AUROC | AUPRO@30 |
+|---|---:|---:|---:|---:|
+| Main | 96.9524 | 98.8801 | 96.5388 | 92.6407 |
+| No inhibition | 96.8295 | 98.7223 | 96.4845 | 92.7122 |
+| No hard residual term | 94.0132 | 97.5447 | 95.7992 | 91.3764 |
+| Layer 2 only | 92.7409 | 96.6304 | 91.4308 | 84.9494 |
+| Layer 3 only | 96.5376 | 98.8142 | 96.4890 | 91.9226 |
+
+## Complementary image experiments
+
+Image-AUROC, category macro followed by mean ± sample SD over five seeds:
+
+| Dataset | Strict image PILAR | Feature-PILAR-FCN |
+|---|---:|---:|
+| MNIST | 94.6460 ± 0.0568 | — |
+| Fashion-MNIST | 87.5989 ± 0.2361 | 93.6112 ± 0.0661 |
+| CIFAR-10 | 57.3526 ± 0.2455 | 81.2406 ± 0.0682 |
+
+The strict grayscale component ablation contains seven settings, ten classes,
+and five seeds for each of MNIST and Fashion-MNIST (700 class-level results).
+MVTec whole-image and patchwise RGB controls have macro Image-AUROC 69.5889%
+and 69.6582%, respectively, over 15 categories at seed 42.
+
+Strict-image and RGB-control references preserve the original metric records
+where predictions were not retained for retrospective correction. The feature
+CIFAR-10/Fashion-MNIST values and industrial values use tie-aware AUROC/AP.
+This distinction does not change the aggregation rule.
+
+## Screening analysis
+
+Review fraction needed to retrieve 90% of anomalies, mean ± sample SD:
+
+| Analysis | Review fraction (%) |
+|---|---:|
+| MVTec, macro over 15 categories | 67.4615 ± 0.2451 |
+| VisA, macro over 12 categories | 59.6871 ± 0.2636 |
+| MVTec, macro over 73 defect subtypes | 38.6672 ± 0.1778 |
+
+Subtype evaluation pairs each subtype with the normal test images from its own
+category. Its prevalence differs from the full-category experiment; the two
+review fractions are not the same operational task. Five seeds contribute to
+each row. These test-set rankings characterize screening, not a calibrated
+production rejection threshold.
+
+## Files
+
+Paths below are relative to `results/reference/`.
+
+| File | Contents |
+|---|---|
+| `paper/industrial_category_metrics.csv` | 75 MVTec main + 60 VisA main + 60 MVTec ablation category results |
+| `paper/industrial_summary.json` | Category identities, seed macros, mean and sample SD |
+| `paper/image_scores.csv` | 19,435 scores: 1,725 MVTec and 2,162 VisA test images per seed |
+| `paper/supplementary_class_metrics.csv` | 250 class results for the five complementary dataset/model combinations |
+| `paper/supplementary_summary.json` | Correct seed-level summaries of those class results |
+| `paper/strict_ablation_class_metrics.csv` | 700 strict grayscale component-ablation class results |
+| `paper/strict_ablation_summary.json` | Strict ablation seed macros and uncertainty |
+| `paper/mvtec/`, `paper/visa/` | Screening reference tables; MVTec includes 365 subtype/seed results |
+| `paper/provenance.json` | Source identities, SHA-256 hashes, protocol and evaluation scope |
+| `mvtec/whole_rgb/`, `mvtec/patch_rgb/` | RGB controls, per-category metrics and image scores |
+| `strict/`, `cifar10/feature/`, `fashion_mnist/feature/` | Additional classwise and configuration details |
+
+The full industrial detector retains 2,782,784 frozen backbone parameters and
+1,547,782 trainable head parameters, totaling 4,330,566. FLOP and timing results
+must state the operator scope, input/output boundary and device; repeat the
+provided timing command on the device of interest. Literature baseline values
+are outside this PILAR reproduction implementation.

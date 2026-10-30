@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import hashlib
 import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
@@ -94,8 +95,9 @@ def _dataset_from_cfg(cfg: Dict):
         cls = datasets.CIFAR10
     else:
         raise ValueError(f"Unsupported dataset: {name}")
-    train = cls(data_dir, train=True, download=True, transform=transform)
-    test = cls(data_dir, train=False, download=True, transform=transform)
+    download = bool(ds_cfg.get("download", True))
+    train = cls(data_dir, train=True, download=download, transform=transform)
+    test = cls(data_dir, train=False, download=download, transform=transform)
     return train, test
 
 
@@ -117,25 +119,11 @@ def _filter_exact_class(ds, class_id: int) -> Subset:
     return _filter_by_class(ds, class_id, invert=False)
 
 
-def _best_trial(run_id: str) -> Dict:
-    path = Path("runs") / "automl" / run_id / "results.jsonl"
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if not rows:
-        raise RuntimeError(f"No trials found in {path}")
-    rows.sort(key=lambda r: r["acc"], reverse=True)
-    return rows[0]["trial"]
-
-
-def _selected_trial(cfg: Dict, run_id: str) -> Dict:
-    """Resolve the frozen architecture without requiring the original AutoML history."""
-    if str(run_id).strip():
-        return _best_trial(str(run_id).strip())
-    trial = cfg.get("selected_trial") or cfg.get("baseline_trial")
+def _selected_trial(cfg: Dict) -> Dict:
+    """Use the frozen architecture supplied with the paper."""
+    trial = cfg.get("selected_trial")
     if not isinstance(trial, dict):
-        raise RuntimeError(
-            "No selected trial is embedded in the config. Provide --run_id to use "
-            "an existing runs/automl/<run_id>/results.jsonl file."
-        )
+        raise ValueError("The configuration must contain selected_trial")
     return trial
 
 
@@ -261,11 +249,6 @@ def _score_norm(scores: torch.Tensor, mu: float, std: float, enabled: bool) -> t
 def main() -> None:
     parser = argparse.ArgumentParser(description="Reconstruction-only no-prototype static-image benchmark.")
     parser.add_argument("--config", default="configs/benchmark_pyramid_fashion.json")
-    parser.add_argument(
-        "--run_id",
-        default="",
-        help="Optional legacy AutoML run. If omitted, config.selected_trial is used.",
-    )
     parser.add_argument("--csv_out", default="runs/benchmark/oneclass_auc_per_class.csv")
     parser.add_argument("--pairwise_csv_out", default="runs/benchmark/oneclass_auc_pairwise.csv")
     parser.add_argument("--decoder_type", default="pure_pyramid", choices=["pure_pyramid", "pyramid"])
@@ -290,25 +273,24 @@ def main() -> None:
         default="",
         help="Optional comma-separated anomaly classes. If omitted, uses classes 0-9, excluding the current normal class.",
     )
-    parser.add_argument("--latent_transformer", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--transformer_d_model", type=int, default=32)
-    parser.add_argument("--transformer_heads", type=int, default=4)
-    parser.add_argument("--transformer_layers", type=int, default=1)
-    parser.add_argument("--transformer_ff_dim", type=int, default=64)
     parser.add_argument("--ablation_tag", default="")
     args = parser.parse_args()
 
     if not args.recon_only:
-        raise SystemExit("Only the proposed reconstruction-only/no-prototype path is retained. Re-run with --recon_only.")
+        raise SystemExit("Use --recon_only for the paper reconstruction protocol.")
     if float(args.latent_score_weight) != 0.0:
-        raise SystemExit("--latent_score_weight must be 0.0 in the cleaned no-prototype path.")
+        raise SystemExit("--latent_score_weight must be 0.0 for reconstruction-only scoring.")
     if str(args.combo_sign_calibration) != "off":
         raise SystemExit("--combo_sign_calibration must be off in the strict no-prototype path.")
 
+    outputs = [Path(args.csv_out), Path(args.pairwise_csv_out)]
+    artifact_dir = Path(args.csv_out).parent / (Path(args.csv_out).stem + "_artifacts")
+    if any(p.exists() for p in outputs) or artifact_dir.exists():
+        raise FileExistsError("Outputs already exist. Choose new output paths; completed runs can be collected with the study runner --resume.")
     cfg = load_json(args.config)
     set_seed(int(cfg.get("seed", 42)))
     device = resolve_device(cfg.get("device", "cuda_if_available"))
-    trial = _selected_trial(cfg, args.run_id)
+    trial = _selected_trial(cfg)
 
     model_cfg = dict(cfg["model"])
     model_cfg["layers_2d"] = trial["layers_2d"]
@@ -331,17 +313,6 @@ def main() -> None:
         dec["use_upsample"] = bool(args.use_upsample)
     else:
         dec["type"] = "pyramid"
-    if bool(args.latent_transformer):
-        dec["transformer"] = {
-            "enabled": True,
-            "d_model": int(args.transformer_d_model),
-            "nhead": int(args.transformer_heads),
-            "num_layers": int(args.transformer_layers),
-            "dim_feedforward": int(args.transformer_ff_dim),
-            "dropout": 0.0,
-            "activation": "gelu",
-            "norm_first": True,
-        }
 
     train_full, test_ds = _dataset_from_cfg(cfg)
     sample_x, _ = train_full[0]
@@ -362,6 +333,14 @@ def main() -> None:
     lr = float(cfg.get("training", {}).get("lr", 1e-3))
     dataset_name = str(ds_cfg.get("name", "unknown"))
     seed = int(cfg.get("seed", 42))
+    if len(set(class_ids)) != len(class_ids) or any(c not in range(10) for c in class_ids) or not class_ids:
+        raise ValueError("class_ids must be nonempty, unique and within 0..9")
+    if len(set(neg_class_ids)) != len(neg_class_ids) or any(c not in range(10) for c in neg_class_ids):
+        raise ValueError("neg_class_ids must be unique and within 0..9")
+    if epochs <= 0 or batch_size <= 0:
+        raise ValueError("epochs and batch_size must be positive")
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "run_config.json").write_text(json.dumps({"config": cfg, "arguments": vars(args), "resolved_model": model_cfg, "resolved_decoder": dec, "epochs": epochs, "device": str(device), "torch_version": str(torch.__version__), "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}, indent=2) + "\n")
 
     print(
         f"[run] dataset={dataset_name} seed={seed} device={device} "
@@ -401,6 +380,7 @@ def main() -> None:
         normal_scores_raw = _recon_errors(model, normal_loader, device, args.loss_type, args.l1_weight)
         normal_scores = _score_norm(normal_scores_raw, mu, std, args.score_znorm)
 
+        score_rows = [{"test_index": int(i), "true_class": int(class_id), "label": 0, "score": float(v)} for i, v in zip(_filter_exact_class(test_ds, class_id).indices.tolist(), normal_scores.tolist())]
         anomaly_parts = []
         for neg_class in neg_class_ids:
             if int(neg_class) == int(class_id):
@@ -409,6 +389,7 @@ def main() -> None:
             neg_scores_raw = _recon_errors(model, neg_loader, device, args.loss_type, args.l1_weight)
             neg_scores = _score_norm(neg_scores_raw, mu, std, args.score_znorm)
             anomaly_parts.append(neg_scores)
+            score_rows.extend({"test_index": int(i), "true_class": int(neg_class), "label": 1, "score": float(v)} for i, v in zip(_filter_exact_class(test_ds, int(neg_class)).indices.tolist(), neg_scores.tolist()))
             pair_auc = _auc_from_scores(normal_scores, neg_scores)
             pair_rows.append(
                 {
@@ -445,6 +426,8 @@ def main() -> None:
                 "infer_flops": float(infer_flops),
             }
         )
+        _write_csv(artifact_dir / f"scores_class{class_id}.csv", score_rows, ["test_index", "true_class", "label", "score"])
+        torch.save({"schema": "pilar-strict-inference-v1", "state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()}, "model_config": model_cfg, "decoder_config": dec, "config": cfg, "arguments": vars(args), "normal_class": int(class_id), "seed": seed, "epoch": epochs, "train_recon_mu": mu, "train_recon_std": std}, artifact_dir / f"model_class{class_id}.pt")
         print(f" class={class_id} auc={auc_test:.4f}")
 
     _write_csv(
