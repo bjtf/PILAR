@@ -3,6 +3,8 @@
 Code and reference results for **Pyramidal Inhibitory Lightweight
 Autoassociative Reconstruction for Cost-Constrained Visual Anomaly Detection**.
 
+Published in [Discover Artificial Intelligence (2026)](https://doi.org/10.1007/s44163-026-02671-5).
+
 PILAR learns to reconstruct normal images or frozen pretrained features using a
 compact pyramidal encoder, lateral inhibition, a spatial bottleneck, and a
 reconstruction decoder. Anomaly scores are reconstruction residuals.
@@ -167,5 +169,25 @@ whole-image RGB, and patchwise RGB appear in
 [docs/ARTIFACT_SCOPE.md](docs/ARTIFACT_SCOPE.md) describes the files and external
 data dependencies.
 
-PILAR is distributed under the [MIT License](LICENSE). Citation metadata is in
-[CITATION.cff](CITATION.cff).
+## Citation
+
+If you use PILAR or this code in your research, please cite the published article:
+
+> Fernandes, B. J. T. Pyramidal inhibitory lightweight autoassociative reconstruction for cost-constrained visual anomaly detection. *Discover Artificial Intelligence* **6**, 1829 (2026). https://doi.org/10.1007/s44163-026-02671-5
+
+```bibtex
+@article{Fernandes2026PILAR,
+  author  = {Fernandes, Bruno J. T.},
+  title   = {Pyramidal inhibitory lightweight autoassociative reconstruction for cost-constrained visual anomaly detection},
+  journal = {Discover Artificial Intelligence},
+  year    = {2026},
+  volume  = {6},
+  number  = {1},
+  pages   = {1829},
+  doi     = {10.1007/s44163-026-02671-5},
+  url     = {https://doi.org/10.1007/s44163-026-02671-5}
+}
+```
+
+Citation metadata is also available in [CITATION.cff](CITATION.cff).
+PILAR is distributed under the [MIT License](LICENSE).

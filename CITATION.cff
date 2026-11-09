@@ -1,15 +1,26 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite the associated paper."
+message: "If you use PILAR or this code in your research, please cite the published article below."
 title: "PILAR: Pyramidal Inhibitory Lightweight Autoassociative Reconstruction"
 type: software
 version: 0.1.0
+repository-code: "https://github.com/bjtf/PILAR"
 authors:
   - family-names: Fernandes
     given-names: "Bruno J. T."
+    orcid: "https://orcid.org/0000-0002-6001-3925"
 preferred-citation:
   type: article
-  title: "Pyramidal Inhibitory Lightweight Autoassociative Reconstruction for Cost-Constrained Visual Anomaly Detection"
+  title: "Pyramidal inhibitory lightweight autoassociative reconstruction for cost-constrained visual anomaly detection"
   authors:
     - family-names: Fernandes
       given-names: "Bruno J. T."
+      orcid: "https://orcid.org/0000-0002-6001-3925"
+  journal: "Discover Artificial Intelligence"
+  volume: "6"
+  issue: "1"
+  start: "1829"
   year: 2026
+  month: 11
+  date-published: "2026-11-09"
+  doi: "10.1007/s44163-026-02671-5"
+  url: "https://doi.org/10.1007/s44163-026-02671-5"
